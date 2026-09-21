@@ -7,9 +7,15 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
+from app.api.v1.api import api_router
 from app.core.config import settings
+from app.core.handlers import register_exception_handlers
 from app.core.logging import setup_logging
+from app.core.middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
+from app.core.ratelimit import limiter
 
 setup_logging(settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
@@ -50,6 +56,11 @@ _docs_kwargs = (
 )
 app = FastAPI(title="sectors-agent API", lifespan=lifespan, **_docs_kwargs)
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.MAX_JSON_BODY_BYTES)
+app.add_middleware(SecurityHeadersMiddleware, hsts=settings.is_production)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -57,6 +68,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+register_exception_handlers(app)
+app.include_router(api_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/health", summary="Health check")
