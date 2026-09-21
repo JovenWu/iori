@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.core.ratelimit import limiter
 from app.db.base import Base
 from app.main import app
+from app.models.user import User
 
 limiter.enabled = False
 
@@ -43,6 +44,9 @@ def _prepare_database():
     admin.dispose()
 
     sync_engine = create_engine(_SYNC_URI)
+    with sync_engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.commit()
     Base.metadata.create_all(sync_engine)
     yield
     Base.metadata.drop_all(sync_engine)
@@ -57,11 +61,24 @@ async def engine(_prepare_database):
 
 
 @pytest_asyncio.fixture
+async def user(db):
+    u = User(username="testuser")
+    db.add(u)
+    await db.commit()
+    await db.refresh(u)
+    return u
+
+
+@pytest_asyncio.fixture
 async def db(engine):
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as session:
         yield session
         await session.rollback()
+    # Committed rows would leak into the next test — truncate everything.
+    async with engine.begin() as conn:
+        for table in reversed(Base.metadata.sorted_tables):
+            await conn.execute(table.delete())
 
 
 @pytest_asyncio.fixture
