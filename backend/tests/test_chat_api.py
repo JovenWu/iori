@@ -39,7 +39,7 @@ def fake_llm(monkeypatch):
     monkeypatch.setattr(service, "_post_turn", AsyncMock())
     # Fresh AIMessage per call — reusing one object would share its `id`, and
     # add_messages treats a repeated id as an update rather than an append.
-    async def _fake_ainvoke(messages):
+    async def _fake_ainvoke(messages, config=None):
         return AIMessage(content="Halo! Ada yang bisa dibantu?")
 
     monkeypatch.setattr(
@@ -135,7 +135,7 @@ async def test_stop_signals_run(client, agent_service, monkeypatch):
     monkeypatch.setattr(context, "recall_memories", AsyncMock(return_value=""))
     monkeypatch.setattr(service, "_post_turn", AsyncMock())
 
-    async def slow_llm(messages):
+    async def slow_llm(messages, config=None):
         await asyncio.sleep(60)
         return AIMessage(content="never")
 
@@ -196,7 +196,7 @@ async def test_stream_emits_tool_events(client, agent_service, fake_llm, monkeyp
         ]
     )
 
-    async def two_step_llm(messages):
+    async def two_step_llm(messages, config=None):
         return next(responses)
 
     monkeypatch.setattr(nodes, "agent_llm", SimpleNamespace(ainvoke=two_step_llm))
@@ -245,3 +245,38 @@ async def test_thread_ownership_and_delete(client, agent_service, fake_llm, db):
     assert deleted.status_code == 200
     gone = await client.get(f"/api/v1/threads/{thread_id}", headers=headers)
     assert gone.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_rename_thread(client, agent_service, fake_llm):
+    headers = await _login(client)
+    async with client.stream(
+        "POST", STREAM_URL, json={"message": "halo"}, headers=headers
+    ) as resp:
+        events = await _collect(resp)
+    thread_id = events[-1]["data"]["thread_id"]
+
+    renamed = await client.patch(
+        f"/api/v1/threads/{thread_id}",
+        json={"title": "BBCA deep dive"},
+        headers=headers,
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["title"] == "BBCA deep dive"
+
+    detail = await client.get(f"/api/v1/threads/{thread_id}", headers=headers)
+    assert detail.json()["title"] == "BBCA deep dive"
+
+    # Validation + ownership
+    assert (
+        await client.patch(
+            f"/api/v1/threads/{thread_id}", json={"title": ""}, headers=headers
+        )
+    ).status_code == 422
+    assert (
+        await client.patch(
+            "/api/v1/threads/00000000-0000-0000-0000-000000000000",
+            json={"title": "nope"},
+            headers=headers,
+        )
+    ).status_code == 404

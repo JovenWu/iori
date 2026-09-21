@@ -60,6 +60,6 @@ def _compose_system(state: ChatState) -> str:
 async def agent(state: ChatState, config: RunnableConfig) -> dict:
     active = state["messages"][state.get("summarized_upto", 0) :]
     response = await agent_llm.ainvoke(
-        [SystemMessage(content=_compose_system(state)), *active]
+        [SystemMessage(content=_compose_system(state)), *active], config
     )
     return {"messages": [response]}

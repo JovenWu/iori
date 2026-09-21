@@ -1,0 +1,92 @@
+"use client";
+
+import { useRef, useState } from "react";
+import { ArrowUp, Square } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { useSettings } from "@/lib/settings";
+
+export function ChatInput({
+  running,
+  onSend,
+  onStop,
+}: {
+  running: boolean;
+  onSend: (text: string) => void;
+  onStop: () => void;
+}) {
+  const { settings } = useSettings();
+  const [value, setValue] = useState("");
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  function submit() {
+    const text = value.trim();
+    if (!text || running) return;
+    onSend(text);
+    setValue("");
+    if (ref.current) {
+      ref.current.style.height = "auto";
+      ref.current.focus();
+    }
+  }
+
+  function autosize(el: HTMLTextAreaElement) {
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }
+
+  return (
+    <div className="rounded-2xl border border-border bg-card shadow-[0_1px_2px_rgb(0_0_0/0.04),0_8px_24px_-12px_rgb(0_0_0/0.08)] transition-shadow focus-within:ring-2 focus-within:ring-ring/40">
+      <Textarea
+        ref={ref}
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value);
+          autosize(e.target);
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter") return;
+          const wantsSend = settings.sendWithEnter
+            ? !e.shiftKey
+            : e.ctrlKey || e.metaKey;
+          if (wantsSend) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        placeholder="Ask about the IDX — prices, filings, movers, news…"
+        rows={1}
+        className="max-h-[200px] min-h-0 resize-none border-0 bg-transparent px-3.5 py-3 text-sm shadow-none focus-visible:ring-0"
+      />
+      <div className="flex items-center justify-between px-3 pb-2.5">
+        <span className="font-mono text-[11px] text-muted-foreground/70">
+          {settings.sendWithEnter
+            ? "Enter to send · Shift+Enter for a newline"
+            : "Ctrl+Enter to send · Enter for a newline"}
+        </span>
+        {running ? (
+          <Button
+            size="icon-sm"
+            variant="secondary"
+            onClick={onStop}
+            aria-label="Stop generating"
+            className="rounded-full"
+          >
+            <Square className="size-3.5 fill-current" />
+          </Button>
+        ) : (
+          <Button
+            size="icon-sm"
+            onClick={submit}
+            disabled={!value.trim()}
+            aria-label="Send"
+            className="rounded-full"
+          >
+            <ArrowUp className="size-4" />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}

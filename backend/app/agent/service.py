@@ -56,7 +56,7 @@ async def init_service() -> None:
     await _saver.setup()
     _graph = build_graph().compile(checkpointer=_saver)
     _memory_sem = asyncio.Semaphore(settings.MEMORY_BACKGROUND_CONCURRENCY)
-    logger.info("agent service ready (checkpointer pool ≤ %d)", settings.CHECKPOINTER_POOL_MAX_SIZE)
+    logger.info("agent service ready (checkpointer pool <= %d)", settings.CHECKPOINTER_POOL_MAX_SIZE)
 
 
 async def shutdown_service() -> None:
@@ -114,6 +114,18 @@ async def list_threads(db: AsyncSession, user_id: int) -> list[Thread]:
     return list(result.scalars().all())
 
 
+async def rename_thread(
+    db: AsyncSession, user_id: int, thread_id: str | uuid.UUID, title: str
+) -> Thread | None:
+    thread = await get_thread(db, user_id, thread_id)
+    if thread is None:
+        return None
+    thread.title = title
+    await db.commit()
+    await db.refresh(thread)
+    return thread
+
+
 async def delete_thread(
     db: AsyncSession, user_id: int, thread_id: str | uuid.UUID
 ) -> bool:
@@ -153,6 +165,17 @@ async def get_thread_messages(thread_id: str | uuid.UUID) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _chunk_text(msg: AIMessageChunk) -> str:
+    """Plain text from a streamed chunk — string content or text blocks."""
+    if isinstance(msg.content, str):
+        return msg.content
+    return "".join(
+        b.get("text", "")
+        for b in msg.content
+        if isinstance(b, dict) and b.get("type") == "text"
+    )
+
+
 async def run_turn(
     run: AgentRun, user_id: int, thread_id: str, user_msg: str
 ) -> None:
@@ -174,10 +197,11 @@ async def run_turn(
                     if (
                         meta.get("langgraph_node") == "agent"
                         and isinstance(msg, AIMessageChunk)
-                        and isinstance(msg.content, str)
                     ):
-                        accumulated += msg.content
-                        run.emit("token", msg.content)
+                        chunk = _chunk_text(msg)
+                        if chunk:
+                            accumulated += chunk
+                            run.emit("token", chunk)
                 elif kind == "updates":
                     for node_name, update in payload.items():
                         if not isinstance(update, dict):

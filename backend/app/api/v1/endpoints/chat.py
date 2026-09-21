@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import time
 import uuid
 from typing import Any, AsyncIterator
 
@@ -20,6 +21,7 @@ from app.schemas.chat import (
     ThreadDetailOut,
     ThreadListOut,
     ThreadOut,
+    ThreadRenameRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,6 +76,12 @@ async def chat_stream(
             raise HTTPException(status_code=429, detail=str(exc))
         run.task = asyncio.create_task(
             service.run_turn(run, current_user.id, tid, body.message)
+        )
+        # Buffered — subscribers replay it; lets clients stop a fresh thread's
+        # first run before done/stopped carries the id. started_at anchors the
+        # client's live timer so remounts don't zero it.
+        run.emit(
+            "started", {"thread_id": tid, "started_at": int(time.time() * 1000)}
         )
 
     return StreamingResponse(
@@ -135,6 +143,19 @@ async def get_thread(
         raise HTTPException(status_code=404, detail="Thread not found")
     messages = await service.get_thread_messages(thread_id)
     return {**ThreadOut.model_validate(thread).model_dump(), "messages": messages}
+
+
+@router.patch("/threads/{thread_id}", response_model=ThreadOut)
+async def rename_thread(
+    thread_id: uuid.UUID,
+    body: ThreadRenameRequest,
+    current_user: User = Depends(deps.get_current_user),
+    db: AsyncSession = Depends(deps.get_db),
+) -> Any:
+    thread = await service.rename_thread(db, current_user.id, thread_id, body.title)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return thread
 
 
 @router.delete("/threads/{thread_id}")

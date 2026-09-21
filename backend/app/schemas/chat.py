@@ -9,6 +9,10 @@ class ChatStreamRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
 
 
+class ThreadRenameRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=100)
+
+
 class ThreadOut(BaseModel):
     id: uuid.UUID
     title: str | None
