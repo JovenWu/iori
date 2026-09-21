@@ -88,6 +88,18 @@ async def db(engine):
 
 
 @pytest_asyncio.fixture
+async def bound_session_maker(engine):
+    """Rebind the app's global session maker to the per-test engine — required
+    for modules that open their own sessions (e.g. the Sectors cache), or their
+    connections pool against a dead event loop."""
+    from app.db import session as db_session
+
+    db_session.async_session_maker.configure(bind=engine)
+    yield
+    db_session.async_session_maker.configure(bind=db_session.engine)
+
+
+@pytest_asyncio.fixture
 async def client(engine):
     """API client; the app's session maker is rebound to the per-test engine."""
     from app.db import session as db_session

@@ -159,6 +159,17 @@ async def cached_get(
         if task.done():
             _inflight.pop(key, None)
 
+    # A failed refresh (429/5xx — free but useless) shouldn't surface as an
+    # error when a stored entry can answer instead.
+    if status not in _BILLABLE and existing is not None:
+        return CacheResult(
+            existing.status,
+            existing.payload,
+            "stale_fallback",
+            existing.fetched_at.isoformat(),
+            True,
+        )
+
     if owner and status in _BILLABLE:
         await _store(
             key, endpoint, params, status, data,

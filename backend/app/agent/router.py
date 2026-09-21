@@ -1,9 +1,9 @@
 """JEV Choice router.
 
-Registered workflows live in WORKFLOWS; the groundwork ships `general` only.
-Adding a Sectors workflow later = one entry here + a node/edge in the graph.
-When JEV is unavailable the router fails closed to `general` — the only
-workflow guaranteed to exist.
+Registered workflows live in WORKFLOWS. New workflows = one entry here plus
+a prompt hint in nodes._WORKFLOW_HINTS if the agent needs guidance. When JEV
+is unavailable the router fails closed to `general` — the only workflow
+guaranteed to be side-effect free.
 """
 
 import logging
@@ -17,7 +17,12 @@ from app.core.jev import Choice, jev_ask
 logger = logging.getLogger(__name__)
 
 WORKFLOWS: dict[str, str] = {
-    "general": "General conversation, questions, and analysis.",
+    "general": "General conversation, greetings, explanations, and non-market questions.",
+    "sectors_data": (
+        "IDX market data questions — prices, screening, company or subsector "
+        "reports, rankings, broker activity, foreign flow, filings, "
+        "suspensions, corporate actions, listing performance, market news."
+    ),
 }
 
 _DEFAULT = "general"
@@ -31,9 +36,6 @@ def _last_user_query(messages: list[BaseMessage]) -> str:
 
 
 async def router(state: ChatState, config: RunnableConfig) -> dict:
-    if len(WORKFLOWS) == 1:
-        return {"workflow": _DEFAULT}
-
     result = await jev_ask(
         {
             "latest_user_message": _last_user_query(state.get("messages", [])),

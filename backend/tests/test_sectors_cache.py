@@ -16,14 +16,8 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def _bind_cache_db(engine):
-    """cache.py opens its own sessions via the global async_session_maker —
-    rebind it to the per-test engine or pooled connections bind to a dead loop."""
-    from app.db import session as db_session
-
-    db_session.async_session_maker.configure(bind=engine)
+async def _bind_cache_db(bound_session_maker):
     yield
-    db_session.async_session_maker.configure(bind=db_session.engine)
 
 
 def _fake_get(status=200, data=None, calls=None):
@@ -145,6 +139,20 @@ async def test_upstream_failure_falls_back_to_stored(db, monkeypatch):
 
     with pytest.raises(client.SectorsUnavailable):
         await cache.cached_get("daily", "/v2/daily/GOTO/", params, Freshness.EOD)
+
+
+async def test_failed_refresh_status_falls_back_to_stored(db, monkeypatch):
+    """A 429/5xx on refresh shouldn't surface as an error when a stored
+    entry can answer."""
+    monkeypatch.setattr(client, "get", _fake_get(data={"v": 1}))
+    params = {"end": "2026-07-08"}
+    await cache.cached_get("daily", "/v2/daily/BBCA/", params, Freshness.EOD)
+
+    monkeypatch.setattr(client, "get", _fake_get(status=429, data={"error": "limited"}))
+    result = await cache.cached_get(
+        "daily", "/v2/daily/BBCA/", params, Freshness.EOD, refresh=True
+    )
+    assert result.source == "stale_fallback" and result.data == {"v": 1} and result.stale
 
 
 async def test_cache_key_canonicalization():

@@ -179,10 +179,23 @@ async def run_turn(
                         accumulated += msg.content
                         run.emit("token", msg.content)
                 elif kind == "updates":
-                    update = payload.get("agent") or {}
-                    for m in update.get("messages", []):
-                        if isinstance(m, AIMessage) and isinstance(m.content, str):
-                            final_answer = m.content
+                    for node_name, update in payload.items():
+                        if not isinstance(update, dict):
+                            continue
+                        for m in update.get("messages", []):
+                            if node_name == "agent" and isinstance(m, AIMessage):
+                                if isinstance(m.content, str) and m.content:
+                                    final_answer = m.content
+                                for tc in m.tool_calls or []:
+                                    run.emit(
+                                        "tool",
+                                        {"name": tc.get("name"), "status": "call"},
+                                    )
+                            elif node_name == "tools":
+                                run.emit(
+                                    "tool",
+                                    {"name": getattr(m, "name", "tool"), "status": "done"},
+                                )
         answer = accumulated or final_answer
         run.emit("done", {"answer": answer, "thread_id": thread_id})
     except asyncio.CancelledError:

@@ -168,6 +168,54 @@ async def test_stop_signals_run(client, agent_service, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_stream_emits_tool_events(client, agent_service, fake_llm, monkeypatch):
+    from app.sectors import client as sectors_client
+
+    calls = []
+
+    async def fake_get(path, params=None):
+        calls.append(path)
+        return 200, {"sectors": [{"banks": "Financials"}]}
+
+    monkeypatch.setattr(sectors_client, "get", fake_get)
+
+    responses = iter(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "sectors_list_subsectors",
+                        "args": {},
+                        "id": "call-1",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            AIMessage(content="IDX subsectors: banks → Financials."),
+        ]
+    )
+
+    async def two_step_llm(messages):
+        return next(responses)
+
+    monkeypatch.setattr(nodes, "agent_llm", SimpleNamespace(ainvoke=two_step_llm))
+
+    headers = await _login(client)
+    async with client.stream(
+        "POST", STREAM_URL, json={"message": "subsectors?"}, headers=headers
+    ) as resp:
+        events = await _collect(resp)
+
+    tool_events = [e for e in events if e["type"] == "tool"]
+    assert [e["data"]["status"] for e in tool_events] == ["call", "done"]
+    assert tool_events[0]["data"]["name"] == "sectors_list_subsectors"
+    assert calls == ["/v2/subsectors/"]
+    assert events[-1]["type"] == "done"
+    assert "banks" in events[-1]["data"]["answer"]
+
+
+@pytest.mark.asyncio
 async def test_thread_ownership_and_delete(client, agent_service, fake_llm, db):
     headers = await _login(client)
     other = User(username="other")

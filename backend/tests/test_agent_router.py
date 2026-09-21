@@ -1,4 +1,4 @@
-"""JEV Choice router: single-workflow short-circuit, choice, fallback."""
+"""JEV Choice router: sectors_data routing and general fallback."""
 
 from types import SimpleNamespace
 
@@ -17,34 +17,24 @@ def _state(msg="hi"):
 
 
 @pytest.mark.asyncio
-async def test_single_workflow_short_circuits(monkeypatch):
-    async def explode(state, questions):
-        raise AssertionError("jev_ask must not be called with one workflow")
-
-    monkeypatch.setattr(router, "jev_ask", explode)
-    assert await router.router(_state(), {}) == {"workflow": "general"}
-
-
-@pytest.mark.asyncio
-async def test_jev_choice_routes(monkeypatch):
-    monkeypatch.setitem(router.WORKFLOWS, "sectors", "Sectors data workflow.")
-
+async def test_jev_choice_routes_to_sectors(monkeypatch):
     async def fake_ask(state, questions):
+        assert "route" in questions
         return SimpleNamespace(
-            choices={"route": SimpleNamespace(choice="sectors", confidence=0.9)}
+            choices={"route": SimpleNamespace(choice="sectors_data")}
         )
 
     monkeypatch.setattr(router, "jev_ask", fake_ask)
-    assert await router.router(_state(), {}) == {"workflow": "sectors"}
+    assert await router.router(_state("harga BBCA hari ini"), {}) == {
+        "workflow": "sectors_data"
+    }
 
 
 @pytest.mark.asyncio
 async def test_invalid_or_missing_choice_falls_back(monkeypatch):
-    monkeypatch.setitem(router.WORKFLOWS, "sectors", "Sectors data workflow.")
-
     async def bad_choice(state, questions):
         return SimpleNamespace(
-            choices={"route": SimpleNamespace(choice="bogus", confidence=0.9)}
+            choices={"route": SimpleNamespace(choice="bogus")}
         )
 
     monkeypatch.setattr(router, "jev_ask", bad_choice)
