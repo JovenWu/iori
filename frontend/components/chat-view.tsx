@@ -1,29 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 
+import { ChatHeader } from "@/components/chat-header";
 import { ChatInput } from "@/components/chat-input";
 import { ChatMessages, type Message } from "@/components/chat-messages";
-import { getThread, stopThread, streamChat } from "@/lib/api";
+import { SparkMark } from "@/components/spark-mark";
+import { getThread, stopThread, streamChat, updateThread } from "@/lib/api";
 import { verbFor } from "@/lib/tool-labels";
 import type { ToolActivity } from "@/components/agent-status";
 import {
   THREAD_CREATED_EVENT,
   THREAD_STREAMING_STATE_EVENT,
   THREAD_STREAM_DETACHED_EVENT,
+  THREAD_RENAMED_EVENT,
   type ThreadCreatedEventDetail,
   type ThreadStreamingStateEventDetail,
   type ThreadStreamDetachedEventDetail,
+  type ThreadRenamedEventDetail,
+  NEW_THREAD_EVENT,
+  emitThreadEvent,
 } from "@/lib/thread-events";
 
 let msgSeq = 0;
 const nextId = (prefix: string) => `${prefix}-${Date.now()}-${++msgSeq}`;
-
-function emit<T>(type: string, detail: T) {
-  window.dispatchEvent(new CustomEvent<T>(type, { detail }));
-}
 
 /** Flat history — server messages map straight onto the UI model. */
 function toMessages(
@@ -58,19 +60,45 @@ function settleRun(
 
 export function ChatView({ threadId }: { threadId: string | null }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [messages, setMessages] = useState<Message[]>([]);
   const [running, setRunning] = useState(false);
   const [loadedThread, setLoadedThread] = useState<string | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
+  const [starred, setStarred] = useState(false);
   const threadRef = useRef<string | null>(threadId);
   const runningRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  // True once the live run was handed to the sidebar's watcher — the aborted
+  // stream's `finally` must not emit isStreaming=false and kill the handoff.
+  const detachedRef = useRef(false);
 
   const [prevThread, setPrevThread] = useState(threadId);
   if (prevThread !== threadId) {
     setPrevThread(threadId);
     setMessages([]);
     setLoadedThread(null);
+    setTitle(null);
+    setStarred(false);
   }
+
+  // `done` swaps the URL to /threads/{id} via history.replaceState — a URL
+  // change only, no remount — so this instance keeps holding the finished
+  // thread while the route prop stays null. Coming back to "/" (New Thread)
+  // is only observable through pathname.
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
+    if (pathname === "/" && loadedThread) {
+      setMessages([]);
+      setLoadedThread(null);
+      setTitle(null);
+      setStarred(false);
+    }
+  }
+  useEffect(() => {
+    if (pathname === "/") threadRef.current = null;
+  }, [pathname]);
 
   useEffect(() => {
     threadRef.current = threadId;
@@ -78,6 +106,11 @@ export function ChatView({ threadId }: { threadId: string | null }) {
     getThread(threadId)
       .then((t) => {
         setMessages(toMessages(t.messages));
+        const firstUserMsg = t.messages.find((m) => m.role === "user")?.content;
+        setTitle(
+          t.title ?? firstUserMsg?.trim().slice(0, 60) ?? "Untitled",
+        );
+        setStarred(t.starred);
         setLoadedThread(threadId);
       })
       .catch(() => {
@@ -86,18 +119,52 @@ export function ChatView({ threadId }: { threadId: string | null }) {
       });
   }, [threadId, router]);
 
+  /** Hand the live run to the sidebar's background watcher, then drop it. */
+  const detachRun = useCallback(() => {
+    const tid = threadRef.current;
+    if (!tid || !runningRef.current) return;
+    detachedRef.current = true;
+    abortRef.current?.abort();
+    emitThreadEvent<ThreadStreamDetachedEventDetail>(
+      THREAD_STREAM_DETACHED_EVENT,
+      { threadId: tid },
+    );
+  }, []);
+
   // Navigating away mid-run detaches the stream: the server keeps generating,
   // and the sidebar takes over watching so its loader/notification stay true.
+  useEffect(() => detachRun, [detachRun]);
+
+  // "New Thread" clicked while already on "/" — the router won't navigate a
+  // same-URL link, so reset here (detaching a live run to the sidebar first).
   useEffect(() => {
-    return () => {
-      abortRef.current?.abort();
-      const tid = threadRef.current;
-      if (tid && runningRef.current) {
-        emit<ThreadStreamDetachedEventDetail>(THREAD_STREAM_DETACHED_EVENT, {
-          threadId: tid,
-        });
+    const onNewThread = () => {
+      detachRun();
+      threadRef.current = null;
+      setMessages([]);
+      setLoadedThread(null);
+      setTitle(null);
+      setStarred(false);
+    };
+    window.addEventListener(NEW_THREAD_EVENT, onNewThread);
+    return () => window.removeEventListener(NEW_THREAD_EVENT, onNewThread);
+  }, [detachRun]);
+
+  // Renames can come from the sidebar or history while this thread is open —
+  // keep the header title in sync.
+  useEffect(() => {
+    const onRenamed = (event: Event) => {
+      const detail = (event as CustomEvent<ThreadRenamedEventDetail>).detail;
+      if (detail?.threadId && detail.threadId === threadRef.current) {
+        setTitle(detail.title);
       }
     };
+    window.addEventListener(THREAD_RENAMED_EVENT, onRenamed as EventListener);
+    return () =>
+      window.removeEventListener(
+        THREAD_RENAMED_EVENT,
+        onRenamed as EventListener,
+      );
   }, []);
 
   /** Patch one assistant message in place (live turns + retries). */
@@ -113,10 +180,11 @@ export function ChatView({ threadId }: { threadId: string | null }) {
   const runStream = useCallback(
     async (text: string, assistantId: string) => {
       abortRef.current = new AbortController();
+      detachedRef.current = false;
       let announced = false;
 
       const announceStreaming = (tid: string, isStreaming: boolean) => {
-        emit<ThreadStreamingStateEventDetail>(THREAD_STREAMING_STATE_EVENT, {
+        emitThreadEvent<ThreadStreamingStateEventDetail>(THREAD_STREAMING_STATE_EVENT, {
           threadId: tid,
           isStreaming,
         });
@@ -133,6 +201,10 @@ export function ChatView({ threadId }: { threadId: string | null }) {
             case "started": {
               const isNew = !threadRef.current;
               threadRef.current = data.thread_id;
+              // Marks "these messages belong to thread X" — enables the
+              // header's star/more actions mid-run and tells a later return
+              // to "/" (New Thread) to reset.
+              setLoadedThread(data.thread_id);
               // Backend sends started_at as epoch ms; accept ISO too.
               const raw = data.started_at;
               const startedAt =
@@ -147,9 +219,11 @@ export function ChatView({ threadId }: { threadId: string | null }) {
                 },
               }));
               if (isNew) {
-                emit<ThreadCreatedEventDetail>(THREAD_CREATED_EVENT, {
+                const newTitle = text.trim().slice(0, 60) || "New thread";
+                setTitle(newTitle);
+                emitThreadEvent<ThreadCreatedEventDetail>(THREAD_CREATED_EVENT, {
                   threadId: data.thread_id,
-                  title: text.trim().slice(0, 60) || "New thread",
+                  title: newTitle,
                 });
               }
               announced = true;
@@ -183,6 +257,10 @@ export function ChatView({ threadId }: { threadId: string | null }) {
               break;
             case "done":
               threadRef.current = data.thread_id;
+              // Marks "these messages belong to thread X" so a later return
+              // to "/" (New Thread) knows to reset — the route prop stays
+              // null because replaceState never remounts this page.
+              setLoadedThread(data.thread_id);
               window.history.replaceState(
                 null,
                 "",
@@ -229,8 +307,9 @@ export function ChatView({ threadId }: { threadId: string | null }) {
         abortRef.current = null;
         // The loop can end without a terminal event (client abort, network
         // drop) — make sure the sidebar never sees a stale streaming flag.
-        if (announced && threadRef.current) {
-          emit<ThreadStreamingStateEventDetail>(THREAD_STREAMING_STATE_EVENT, {
+        // Skipped after a detach: the sidebar watcher owns the run now.
+        if (announced && threadRef.current && !detachedRef.current) {
+          emitThreadEvent<ThreadStreamingStateEventDetail>(THREAD_STREAMING_STATE_EVENT, {
             threadId: threadRef.current,
             isStreaming: false,
           });
@@ -285,21 +364,79 @@ export function ChatView({ threadId }: { threadId: string | null }) {
     abortRef.current?.abort();
   }, []);
 
+  // The thread whose messages are on screen — drives the header's star,
+  // menu, and the switcher's "Current" badge. Null on a fresh new chat and
+  // while a /threads/[id] load is still in flight.
+  const activeThreadId = loadedThread;
+
+  const toggleStar = useCallback(() => {
+    const tid = activeThreadId;
+    if (!tid) return;
+    const next = !starred;
+    setStarred(next);
+    updateThread(tid, { starred: next }).catch(() => {
+      setStarred(!next);
+      toast.error("Couldn't update the thread");
+    });
+  }, [activeThreadId, starred]);
+
+  // The open thread was deleted (header menu / Ctrl+Delete): abort any live
+  // stream, reset to a blank new chat, and land on "/" if not already there.
+  const handleThreadDeleted = useCallback(() => {
+    abortRef.current?.abort();
+    threadRef.current = null;
+    setMessages([]);
+    setLoadedThread(null);
+    setTitle(null);
+    setStarred(false);
+    if (pathname !== "/") router.push("/");
+  }, [pathname, router]);
+
   const showComposer = !threadId || loadedThread === threadId;
+  const isEmpty = messages.length === 0;
+  const isLoadingThread = !!threadId && loadedThread !== threadId;
+  const headerTitle = title ?? (threadId ? "" : "New thread");
+  const composer = showComposer ? (
+    <ChatInput running={running} onSend={send} onStop={stop} />
+  ) : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="relative flex min-h-0 flex-1 flex-col">
-        <ChatMessages messages={messages} onRetry={retry} />
-        <div className="chat-fade" aria-hidden="true" />
-      </div>
-      {/* z-10 keeps the composer + its focus ring painted above the fade
-          strip even where they touch. */}
-      <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pb-4">
-        {showComposer && (
-          <ChatInput running={running} onSend={send} onStop={stop} />
-        )}
-      </div>
+      <ChatHeader
+        threadId={activeThreadId}
+        title={headerTitle}
+        starred={starred}
+        messages={messages}
+        onToggleStar={toggleStar}
+        onDeleted={handleThreadDeleted}
+      />
+      {isEmpty ? (
+        /* Fresh chat — Linear-style centered hero + composer. px-4 sits
+            inside max-w-3xl so the box matches the bottom composer exactly. */
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center pb-10">
+          <div className="flex w-full max-w-3xl flex-col items-center px-4">
+            <SparkMark animate className="size-7 text-primary" />
+            <p className="mt-3 text-sm text-muted-foreground">
+              {isLoadingThread
+                ? "Loading thread…"
+                : "Ask about IDX prices, filings, movers, or news."}
+            </p>
+            {composer && <div className="mt-6 w-full">{composer}</div>}
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <ChatMessages messages={messages} onRetry={retry} />
+            <div className="chat-fade" aria-hidden="true" />
+          </div>
+          {/* z-10 keeps the composer + its focus ring painted above the fade
+              strip even where they touch. */}
+          <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pb-4">
+            {composer}
+          </div>
+        </>
+      )}
     </div>
   );
 }

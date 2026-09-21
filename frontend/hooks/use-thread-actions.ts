@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { deleteThread, renameThread } from "@/lib/api";
+import { deleteThread, updateThread } from "@/lib/api";
+import {
+  THREAD_DELETED_EVENT,
+  THREAD_RENAMED_EVENT,
+  emitThreadEvent,
+  type ThreadDeletedEventDetail,
+  type ThreadRenamedEventDetail,
+} from "@/lib/thread-events";
 
 const THREAD_TITLE_CHAR_LIMIT = 100;
 
@@ -64,7 +71,11 @@ export function useThreadActions(options: UseThreadActionsOptions) {
     setIsRenaming(true);
 
     try {
-      await renameThread(renameTarget.threadId, nextTitle);
+      await updateThread(renameTarget.threadId, { title: nextTitle });
+      emitThreadEvent<ThreadRenamedEventDetail>(THREAD_RENAMED_EVENT, {
+        threadId: renameTarget.threadId,
+        title: nextTitle,
+      });
       onRenamed(renameTarget.threadId, nextTitle);
       closeRename();
     } catch (err) {
@@ -81,6 +92,9 @@ export function useThreadActions(options: UseThreadActionsOptions) {
 
     try {
       await deleteThread(deleteTarget.threadId);
+      emitThreadEvent<ThreadDeletedEventDetail>(THREAD_DELETED_EVENT, {
+        threadId: deleteTarget.threadId,
+      });
       onDeleted(deleteTarget.threadId);
       closeDelete();
     } catch (err) {

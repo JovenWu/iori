@@ -16,13 +16,13 @@ const THREAD_TITLE_CHAR_LIMIT = 100;
 interface ThreadActionDialogsProps {
   renameTargetTitle?: string;
   deleteTargetTitle?: string;
-  renameValue: string;
-  isRenaming: boolean;
+  renameValue?: string;
+  isRenaming?: boolean;
   isDeleting: boolean;
-  onRenameValueChange: (value: string) => void;
-  onRenameOpenChange: (open: boolean) => void;
+  onRenameValueChange?: (value: string) => void;
+  onRenameOpenChange?: (open: boolean) => void;
   onDeleteOpenChange: (open: boolean) => void;
-  onSubmitRename: () => void;
+  onSubmitRename?: () => void;
   onSubmitDelete: () => void;
   renameInputClassName?: string;
   renameDialogTitle?: string;
@@ -37,8 +37,8 @@ interface ThreadActionDialogsProps {
 export function ThreadActionDialogs({
   renameTargetTitle,
   deleteTargetTitle,
-  renameValue,
-  isRenaming,
+  renameValue = "",
+  isRenaming = false,
   isDeleting,
   onRenameValueChange,
   onRenameOpenChange,
@@ -55,6 +55,10 @@ export function ThreadActionDialogs({
     `Delete "${title}"? This action cannot be undone.`,
   preventCloseAutoFocus = false,
 }: ThreadActionDialogsProps) {
+  const noop = () => {};
+  onRenameValueChange ??= noop;
+  onRenameOpenChange ??= noop;
+  onSubmitRename ??= noop;
   const dialogContentProps = preventCloseAutoFocus
     ? { onCloseAutoFocus: (e: Event) => e.preventDefault() }
     : {};

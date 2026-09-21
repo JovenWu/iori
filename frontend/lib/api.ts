@@ -20,6 +20,7 @@ export type User = {
 export type Thread = {
   id: string;
   title: string | null;
+  starred: boolean;
   first_answer_preview: string | null;
   created_at: string;
   updated_at: string;
@@ -154,10 +155,13 @@ export const listThreads = () => apiFetch<{ threads: Thread[] }>("/threads");
 export const getThread = (id: string) => apiFetch<ThreadDetail>(`/threads/${id}`);
 export const deleteThread = (id: string) =>
   apiFetch<{ detail: string }>(`/threads/${id}`, { method: "DELETE" });
-export const renameThread = (id: string, title: string) =>
+export const updateThread = (
+  id: string,
+  patch: { title?: string; starred?: boolean },
+) =>
   apiFetch<Thread>(`/threads/${id}`, {
     method: "PATCH",
-    body: JSON.stringify({ title }),
+    body: JSON.stringify(patch),
   });
 export const stopThread = (id: string) =>
   apiFetch<{ stopped: boolean }>(`/threads/${id}/stop`, { method: "POST" });

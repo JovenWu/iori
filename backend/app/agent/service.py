@@ -10,12 +10,12 @@ thread digest.
 import asyncio
 import logging
 import uuid
-from typing import Any, Sequence
+from typing import Sequence
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.graph import build_graph
@@ -80,6 +80,18 @@ def thread_lock(thread_id: str) -> asyncio.Lock:
 # Thread CRUD
 # ---------------------------------------------------------------------------
 
+THREAD_TITLE_FALLBACK_CHARS = 60
+
+
+def _title_fallback(user_msg: str) -> str:
+    """Placeholder title until the LLM names the thread — the first message."""
+    return user_msg.strip()[:THREAD_TITLE_FALLBACK_CHARS] or "New thread"
+
+
+def _title_is_placeholder(thread: Thread, seed_msg: str) -> bool:
+    """True while the thread still shows the first-message fallback."""
+    return not thread.title or thread.title == _title_fallback(seed_msg)
+
 
 async def get_thread(
     db: AsyncSession, user_id: int, thread_id: str | uuid.UUID
@@ -91,15 +103,22 @@ async def get_thread(
 
 
 async def get_or_create_thread(
-    db: AsyncSession, user_id: int, thread_id: str | uuid.UUID | None
+    db: AsyncSession,
+    user_id: int,
+    thread_id: str | uuid.UUID | None,
+    message: str | None = None,
 ) -> Thread:
     if thread_id is not None:
         thread = await get_thread(db, user_id, thread_id)
         if thread is None:
             raise LookupError("Thread not found")
-        return thread
-    thread = Thread(user_id=user_id)
-    db.add(thread)
+    else:
+        thread = Thread(user_id=user_id)
+        db.add(thread)
+    # First-message placeholder — upgraded to the LLM title once the turn
+    # settles. A refresh mid-run then shows the fallback, never "Untitled".
+    if message is not None and not thread.title:
+        thread.title = _title_fallback(message)
     await db.commit()
     await db.refresh(thread)
     return thread
@@ -114,13 +133,28 @@ async def list_threads(db: AsyncSession, user_id: int) -> list[Thread]:
     return list(result.scalars().all())
 
 
-async def rename_thread(
-    db: AsyncSession, user_id: int, thread_id: str | uuid.UUID, title: str
+async def update_thread(
+    db: AsyncSession,
+    user_id: int,
+    thread_id: str | uuid.UUID,
+    *,
+    title: str | None = None,
+    starred: bool | None = None,
 ) -> Thread | None:
     thread = await get_thread(db, user_id, thread_id)
     if thread is None:
         return None
-    thread.title = title
+    if title is not None:
+        thread.title = title
+    if starred is not None:
+        # Star/unstar is metadata, not activity — pin updated_at so toggling
+        # it doesn't reorder the recency-sorted thread list.
+        await db.execute(
+            update(Thread)
+            .where(Thread.id == thread.id)
+            .values(starred=starred, updated_at=thread.updated_at)
+            .execution_options(synchronize_session=False)
+        )
     await db.commit()
     await db.refresh(thread)
     return thread
@@ -180,6 +214,9 @@ async def run_turn(
     run: AgentRun, user_id: int, thread_id: str, user_msg: str
 ) -> None:
     """Stream the graph for one turn into `run`'s buffer. Never raises."""
+    # Title runs concurrently — independent of the answer and usually
+    # committed before the stream closes.
+    asyncio.create_task(_ensure_title(user_id, thread_id, user_msg))
     graph = get_graph()
     config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
     accumulated = ""
@@ -246,8 +283,14 @@ async def run_turn(
 
 
 async def _generate_title(user_msg: str) -> str:
-    llm = get_chat_model(settings.CLASSIFIER_MODEL, temperature=0, timeout=20)
     try:
+        # Reasoning off — the title must be fast and just a few words.
+        llm = get_chat_model(
+            settings.CLASSIFIER_MODEL,
+            temperature=0,
+            timeout=20,
+            reasoning_effort="none",
+        )
         resp = await llm.ainvoke(
             "Write a 3-6 word conversation title (no quotes, no punctuation) "
             f"for a chat that starts with: {user_msg[:300]}"
@@ -256,6 +299,29 @@ async def _generate_title(user_msg: str) -> str:
     except Exception:
         logger.exception("_generate_title failed")
         return ""
+
+
+async def _ensure_title(user_id: int, thread_id: str, user_msg: str) -> None:
+    """Generate + persist the LLM title while the thread still shows the
+    first-message placeholder. Runs concurrently with the turn so the title
+    is usually committed before the run's stream closes; _post_turn retries
+    on failure. Never raises."""
+    try:
+        async with async_session_maker() as db:
+            thread = await get_thread(db, user_id, thread_id)
+            if thread is None or not _title_is_placeholder(thread, user_msg):
+                return
+            generated = await _generate_title(user_msg)
+            if not generated:
+                return
+            # The user may have renamed while the LLM was thinking.
+            await db.refresh(thread)
+            if not _title_is_placeholder(thread, user_msg):
+                return
+            thread.title = generated
+            await db.commit()
+    except Exception:
+        logger.exception("_ensure_title failed for thread %s", thread_id)
 
 
 async def _post_turn(user_id: int, thread_id: str) -> None:
@@ -280,18 +346,33 @@ async def _post_turn(user_id: int, thread_id: str) -> None:
             if not isinstance(user_msg, str) or not isinstance(ai_msg, str):
                 return
             summary = values.get("summary", "") or ""
+            first_user_msg = next(
+                (m.content for m in messages if isinstance(m, HumanMessage)),
+                "",
+            )
 
             async with async_session_maker() as db:
+                thread = await get_thread(db, user_id, thread_id)
+                # Title first — a fast invoke, user-facing. Commit it before
+                # the slow memory work so clients refetching right after the
+                # run see it. Keyed to the first user message so later turns
+                # don't rename settled chats (a user rename survives too).
+                if (
+                    thread is not None
+                    and isinstance(first_user_msg, str)
+                    and _title_is_placeholder(thread, first_user_msg)
+                ):
+                    generated = await _generate_title(first_user_msg)
+                    if generated:
+                        thread.title = generated
+                        await db.commit()
+                title = thread.title if thread else None
                 await process_turn(
                     user_id, thread_id, user_msg, ai_msg, summary, messages, db
                 )
-                thread = await get_thread(db, user_id, thread_id)
-                title = thread.title if thread else None
                 await maintain_digest(
                     db, user_id, thread_id, title, summary, messages
                 )
-                if thread is not None and not thread.title:
-                    thread.title = await _generate_title(user_msg)
                 if thread is not None and not thread.first_answer_preview:
                     thread.first_answer_preview = ai_msg[:200]
                 await db.commit()

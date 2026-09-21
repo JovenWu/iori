@@ -5,7 +5,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { AgentStatus, type ToolActivity } from "@/components/agent-status";
-import { SparkMark } from "@/components/spark-mark";
 import { cn } from "@/lib/utils";
 
 export type Message = {
@@ -146,17 +145,6 @@ export function ChatMessages({
     if (!container || !pinnedRef.current) return;
     container.scrollTop = container.scrollHeight;
   }, [lastContent]);
-
-  if (messages.length === 0) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-        <SparkMark animate className="size-7 text-primary" />
-        <p className="text-sm text-muted-foreground">
-          Ask about IDX prices, filings, movers, or news.
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div

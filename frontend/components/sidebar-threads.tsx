@@ -32,9 +32,15 @@ import {
   THREAD_CREATED_EVENT,
   THREAD_STREAMING_STATE_EVENT,
   THREAD_STREAM_DETACHED_EVENT,
+  THREAD_RENAMED_EVENT,
+  THREAD_DELETED_EVENT,
+  NEW_THREAD_EVENT,
+  emitThreadEvent,
   type ThreadCreatedEventDetail,
   type ThreadStreamingStateEventDetail,
   type ThreadStreamDetachedEventDetail,
+  type ThreadRenamedEventDetail,
+  type ThreadDeletedEventDetail,
 } from "@/lib/thread-events";
 
 interface SidebarThread extends Thread {
@@ -84,18 +90,38 @@ export function SidebarThreads() {
     if (!token) return;
     try {
       const data = await listThreads();
+      // Titles can change under us (LLM naming, another tab's rename) — push
+      // each change onto the bus so an open chat header never goes stale.
+      const prevById = new Map(threadsRef.current.map((t) => [t.id, t]));
+      for (const t of data.threads) {
+        const before = prevById.get(t.id);
+        if (before && t.title && before.title !== t.title) {
+          emitThreadEvent<ThreadRenamedEventDetail>(THREAD_RENAMED_EVENT, {
+            threadId: t.id,
+            title: t.title,
+          });
+        }
+      }
       setThreads((prev) => {
         const prevById = new Map(prev.map((thread) => [thread.id, thread]));
         const fetchedIds = new Set(data.threads.map((thread) => thread.id));
 
+        // Keep rows that outrun the server list only while still pending —
+        // anything else missing from the fetch was deleted elsewhere.
         const optimisticThreads = prev.filter(
-          (thread) => !fetchedIds.has(thread.id),
+          (thread) => !fetchedIds.has(thread.id) && thread.isPending,
         );
 
-        const fetchedThreads: SidebarThread[] = data.threads.map((thread) => ({
-          ...thread,
-          isPending: prevById.get(thread.id)?.isPending ?? false,
-        }));
+        const fetchedThreads: SidebarThread[] = data.threads.map((thread) => {
+          const prev = prevById.get(thread.id);
+          return {
+            ...thread,
+            // Server title can lag the optimistic one — keep ours until the
+            // backend has a real one, so the row never flashes "Untitled".
+            title: thread.title ?? prev?.title ?? null,
+            isPending: prev?.isPending ?? false,
+          };
+        });
 
         return sortThreadsByUpdatedAt([...optimisticThreads, ...fetchedThreads]);
       });
@@ -105,6 +131,15 @@ export function SidebarThreads() {
       setIsLoading(false);
     }
   }, [token]);
+
+  // Refetch now, then twice more — the LLM title is written by _post_turn
+  // just after the run closes, so delayed fetches land it without a refresh.
+  const refetchSoon = useCallback(() => {
+    void fetchThreads();
+    for (const ms of [2500, 6000]) {
+      window.setTimeout(() => void fetchThreads(), ms);
+    }
+  }, [fetchThreads]);
 
   const clearThreadPending = useCallback((id: string) => {
     setThreads((prev) =>
@@ -131,7 +166,12 @@ export function SidebarThreads() {
           // No run for this thread — already finished or never started.
           finished = true;
         } else if (res.ok && res.body) {
-          // Still generating: drain until the server closes the stream.
+          // Still generating: show the loader (matters for the post-refresh
+          // probe, where isPending was lost) and drain until the server
+          // closes the stream.
+          setThreads((prev) =>
+            prev.map((t) => (t.id === id ? { ...t, isPending: true } : t)),
+          );
           const reader = res.body.getReader();
           while (true) {
             const { done } = await reader.read();
@@ -146,7 +186,7 @@ export function SidebarThreads() {
         // Only clear if we weren't aborted by a page taking ownership.
         if (!controller.signal.aborted) {
           clearThreadPending(id);
-          void fetchThreads();
+          refetchSoon();
 
           // The detached run finished → notify, unless the user is now on
           // that thread (e.g. navigated back).
@@ -185,13 +225,29 @@ export function SidebarThreads() {
         }
       }
     },
-    [token, clearThreadPending, fetchThreads, router],
+    [token, clearThreadPending, refetchSoon, router],
   );
 
   useEffect(() => {
     const t = window.setTimeout(() => void fetchThreads(), 0);
     return () => window.clearTimeout(t);
   }, [fetchThreads]);
+
+  // On mount, resume watching threads whose first turn may still be in flight
+  // (no preview yet). A refresh mid-run loses isPending and the DETACHED
+  // event — probing re-attaches so the LLM title still lands without a
+  // manual refresh. Dead threads 404 quickly; each is probed once.
+  const probedRef = useRef(false);
+  useEffect(() => {
+    if (probedRef.current || isLoading) return;
+    probedRef.current = true;
+    const timer = window.setTimeout(() => {
+      for (const thread of threads) {
+        if (!thread.first_answer_preview) void verifyAndWatch(thread.id);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isLoading, threads, verifyAndWatch]);
 
   useEffect(() => {
     const handleThreadCreated = (event: Event) => {
@@ -225,6 +281,7 @@ export function SidebarThreads() {
           {
             id: detail.threadId,
             title: fallbackTitle,
+            starred: false,
             first_answer_preview: null,
             created_at: now,
             updated_at: now,
@@ -244,9 +301,9 @@ export function SidebarThreads() {
       if (!detail.isStreaming) {
         watchersRef.current.get(detail.threadId)?.abort();
         clearThreadPending(detail.threadId);
-        // Refresh from the server so a thread that just received a new message
-        // settles into its correct position (driven by server updated_at).
-        void fetchThreads();
+        // Settles a just-updated thread into its correct position (server
+        // updated_at) and picks up the post-turn LLM title.
+        refetchSoon();
         return;
       }
 
@@ -254,36 +311,52 @@ export function SidebarThreads() {
       // stop any background watcher (the page owns it now).
       watchersRef.current.get(detail.threadId)?.abort();
 
-      if (threadsRef.current.some((t) => t.id === detail.threadId)) {
-        // Only flag the pending loader — in place. Do NOT bump updated_at or
-        // re-sort: opening or resuming a thread must not reorder the list.
-        setThreads((prev) =>
-          prev.map((thread) =>
+      // The existence check lives inside the updater: created + streaming
+      // events fire in the same tick, so threadsRef is still stale here and
+      // checking it would double-insert the row (duplicate React key).
+      let inserted = false;
+      const now = new Date().toISOString();
+      setThreads((prev) => {
+        if (prev.some((t) => t.id === detail.threadId)) {
+          // Only flag the pending loader — in place. Do NOT bump updated_at
+          // or re-sort: opening or resuming a thread must not reorder.
+          return prev.map((thread) =>
             thread.id === detail.threadId
               ? { ...thread, isPending: true }
               : thread,
-          ),
-        );
-        return;
-      }
-
-      // Thread isn't in the list yet — optimistic placeholder, then reconcile
-      // against the server for the real title and ordering.
-      const now = new Date().toISOString();
-      setThreads((prev) =>
-        sortThreadsByUpdatedAt([
+          );
+        }
+        inserted = true;
+        // Optimistic placeholder, then reconcile against the server for the
+        // real title and ordering.
+        return sortThreadsByUpdatedAt([
           {
             id: detail.threadId,
             title: "Thread",
+            starred: false,
             first_answer_preview: null,
             created_at: now,
             updated_at: now,
             isPending: true,
           },
           ...prev,
-        ]),
+        ]);
+      });
+      if (inserted) void fetchThreads();
+    };
+
+    // LLM-named titles (streamed to the open page) and manual renames land
+    // here — update the row in place so the list never needs a refresh.
+    const handleThreadRenamed = (event: Event) => {
+      const detail = (event as CustomEvent<ThreadRenamedEventDetail>).detail;
+      if (!detail?.threadId) return;
+      setThreads((prev) =>
+        prev.map((thread) =>
+          thread.id === detail.threadId
+            ? { ...thread, title: detail.title }
+            : thread,
+        ),
       );
-      void fetchThreads();
     };
 
     // A live page navigated away while its turn was still generating → take
@@ -293,6 +366,15 @@ export function SidebarThreads() {
         .detail;
       if (!detail?.threadId) return;
       void verifyAndWatch(detail.threadId);
+    };
+
+    // Deleted on another surface (header menu, history) — drop the row.
+    const handleThreadDeleted = (event: Event) => {
+      const detail = (event as CustomEvent<ThreadDeletedEventDetail>).detail;
+      if (!detail?.threadId) return;
+      setThreads((prev) =>
+        prev.filter((thread) => thread.id !== detail.threadId),
+      );
     };
 
     window.addEventListener(
@@ -306,6 +388,14 @@ export function SidebarThreads() {
     window.addEventListener(
       THREAD_STREAM_DETACHED_EVENT,
       handleThreadDetached as EventListener,
+    );
+    window.addEventListener(
+      THREAD_RENAMED_EVENT,
+      handleThreadRenamed as EventListener,
+    );
+    window.addEventListener(
+      THREAD_DELETED_EVENT,
+      handleThreadDeleted as EventListener,
     );
 
     return () => {
@@ -321,8 +411,16 @@ export function SidebarThreads() {
         THREAD_STREAM_DETACHED_EVENT,
         handleThreadDetached as EventListener,
       );
+      window.removeEventListener(
+        THREAD_RENAMED_EVENT,
+        handleThreadRenamed as EventListener,
+      );
+      window.removeEventListener(
+        THREAD_DELETED_EVENT,
+        handleThreadDeleted as EventListener,
+      );
     };
-  }, [fetchThreads, verifyAndWatch, clearThreadPending]);
+  }, [fetchThreads, verifyAndWatch, clearThreadPending, refetchSoon]);
 
   // Abort all background watchers when the sidebar unmounts (e.g. logout).
   useEffect(() => {
@@ -367,7 +465,16 @@ export function SidebarThreads() {
               isActive={pathname === "/"}
               className="h-10 px-4 font-medium"
             >
-              <Link href="/">
+              <Link
+                href="/"
+                onClick={() => {
+                  // Already on "/" — the router won't navigate, so tell the
+                  // open ChatView to reset itself.
+                  if (pathname === "/") {
+                    emitThreadEvent(NEW_THREAD_EVENT, {});
+                  }
+                }}
+              >
                 <SquarePlus className="text-primary" />
                 <span className="group-data-[collapsible=icon]:hidden">
                   New Thread

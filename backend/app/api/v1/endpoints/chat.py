@@ -21,7 +21,7 @@ from app.schemas.chat import (
     ThreadDetailOut,
     ThreadListOut,
     ThreadOut,
-    ThreadRenameRequest,
+    ThreadUpdateRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ async def chat_stream(
     # Resolve (or create) the thread first so we can key the mutation lock.
     try:
         thread = await service.get_or_create_thread(
-            db, current_user.id, body.thread_id
+            db, current_user.id, body.thread_id, body.message
         )
     except LookupError:
         raise HTTPException(status_code=404, detail="Thread not found")
@@ -146,13 +146,15 @@ async def get_thread(
 
 
 @router.patch("/threads/{thread_id}", response_model=ThreadOut)
-async def rename_thread(
+async def update_thread(
     thread_id: uuid.UUID,
-    body: ThreadRenameRequest,
+    body: ThreadUpdateRequest,
     current_user: User = Depends(deps.get_current_user),
     db: AsyncSession = Depends(deps.get_db),
 ) -> Any:
-    thread = await service.rename_thread(db, current_user.id, thread_id, body.title)
+    thread = await service.update_thread(
+        db, current_user.id, thread_id, title=body.title, starred=body.starred
+    )
     if thread is None:
         raise HTTPException(status_code=404, detail="Thread not found")
     return thread

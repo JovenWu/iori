@@ -37,6 +37,9 @@ def fake_llm(monkeypatch):
     monkeypatch.setattr(context, "jev_ask", no_jev)
     monkeypatch.setattr(context, "recall_memories", AsyncMock(return_value=""))
     monkeypatch.setattr(service, "_post_turn", AsyncMock())
+    # run_turn launches _ensure_title concurrently — stub the LLM seam so no
+    # real call happens; "" means "no title generated", fallback persists.
+    monkeypatch.setattr(service, "_generate_title", AsyncMock(return_value=""))
     # Fresh AIMessage per call — reusing one object would share its `id`, and
     # add_messages treats a repeated id as an update rather than an append.
     async def _fake_ainvoke(messages, config=None):
@@ -134,6 +137,7 @@ async def test_stop_signals_run(client, agent_service, monkeypatch):
     monkeypatch.setattr(context, "jev_ask", no_jev)
     monkeypatch.setattr(context, "recall_memories", AsyncMock(return_value=""))
     monkeypatch.setattr(service, "_post_turn", AsyncMock())
+    monkeypatch.setattr(service, "_generate_title", AsyncMock(return_value=""))
 
     async def slow_llm(messages, config=None):
         await asyncio.sleep(60)
@@ -216,6 +220,53 @@ async def test_stream_emits_tool_events(client, agent_service, fake_llm, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_thread_title_falls_back_to_first_message(
+    client, agent_service, fake_llm
+):
+    headers = await _login(client)
+
+    async with client.stream(
+        "POST", STREAM_URL, json={"message": "halo"}, headers=headers
+    ) as resp:
+        events = await _collect(resp)
+    thread_id = events[-1]["data"]["thread_id"]
+
+    # _generate_title is stubbed to "" — the first-message fallback persists;
+    # a refresh mid/post-run must never surface "Untitled".
+    assert events[-1]["type"] == "done"
+    detail = await client.get(f"/api/v1/threads/{thread_id}", headers=headers)
+    assert detail.json()["title"] == "halo"
+
+
+@pytest.mark.asyncio
+async def test_llm_title_upgrades_placeholder(
+    client, agent_service, fake_llm, monkeypatch
+):
+    """run_turn's concurrent _ensure_title commits the generated title."""
+    monkeypatch.setattr(
+        service, "_generate_title", AsyncMock(return_value="Sectors Deep Dive")
+    )
+    headers = await _login(client)
+
+    async with client.stream(
+        "POST", STREAM_URL, json={"message": "halo"}, headers=headers
+    ) as resp:
+        events = await _collect(resp)
+    thread_id = events[-1]["data"]["thread_id"]
+
+    # The title task is fire-and-forget — it usually commits mid-run, but
+    # poll briefly so a slow loop iteration can't flake the assertion.
+    title = ""
+    for _ in range(40):
+        detail = await client.get(f"/api/v1/threads/{thread_id}", headers=headers)
+        title = detail.json()["title"]
+        if title == "Sectors Deep Dive":
+            break
+        await asyncio.sleep(0.05)
+    assert title == "Sectors Deep Dive"
+
+
+@pytest.mark.asyncio
 async def test_thread_ownership_and_delete(client, agent_service, fake_llm, db):
     headers = await _login(client)
     other = User(username="other")
@@ -280,3 +331,33 @@ async def test_rename_thread(client, agent_service, fake_llm):
             headers=headers,
         )
     ).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_star_thread_keeps_updated_at(client, agent_service, fake_llm):
+    headers = await _login(client)
+    async with client.stream(
+        "POST", STREAM_URL, json={"message": "halo"}, headers=headers
+    ) as resp:
+        events = await _collect(resp)
+    thread_id = events[-1]["data"]["thread_id"]
+
+    before = await client.get(f"/api/v1/threads/{thread_id}", headers=headers)
+    assert before.json()["starred"] is False
+
+    starred = await client.patch(
+        f"/api/v1/threads/{thread_id}", json={"starred": True}, headers=headers
+    )
+    assert starred.status_code == 200
+    assert starred.json()["starred"] is True
+    # Starring is metadata, not activity — updated_at must not move.
+    assert starred.json()["updated_at"] == before.json()["updated_at"]
+
+    unstarred = await client.patch(
+        f"/api/v1/threads/{thread_id}", json={"starred": False}, headers=headers
+    )
+    assert unstarred.json()["starred"] is False
+
+    listed = await client.get("/api/v1/threads", headers=headers)
+    row = next(t for t in listed.json()["threads"] if t["id"] == thread_id)
+    assert "starred" in row
