@@ -19,6 +19,30 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+# Managed outside Alembic: LangGraph's checkpointer creates its own tables via
+# saver.setup(), and the HNSW/GIN indexes are hand-written in the migration.
+# Without this filter autogenerate proposes dropping all of them.
+_EXTERNAL_TABLES = {
+    "checkpoints",
+    "checkpoint_blobs",
+    "checkpoint_writes",
+    "checkpoint_migrations",
+}
+_EXTERNAL_INDEXES = {
+    "ix_memories_content_fts",
+    "ix_memories_embedding_hnsw",
+    "ix_thread_digests_fts",
+    "ix_thread_digests_embedding_hnsw",
+}
+
+
+def include_object(obj, name, type_, reflected, compare_to) -> bool:
+    if type_ == "table" and name in _EXTERNAL_TABLES:
+        return False
+    if type_ == "index" and name in _EXTERNAL_INDEXES:
+        return False
+    return True
+
 
 def run_migrations_offline() -> None:
     context.configure(
@@ -26,13 +50,18 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def do_run_migrations(connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_object,
+    )
     with context.begin_transaction():
         context.run_migrations()
 

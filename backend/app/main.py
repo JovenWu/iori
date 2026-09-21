@@ -51,11 +51,14 @@ async def lifespan(app: FastAPI):
         raise RuntimeError(msg)
 
     from app.agent import service
+    from app.sectors import client as sectors_client
 
     await service.init_service()
+    sectors_client.init_client()
     try:
         yield
     finally:
+        await sectors_client.close_client()
         await service.shutdown_service()
         logger.info("Shutdown complete.")
 

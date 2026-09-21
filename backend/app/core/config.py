@@ -44,6 +44,19 @@ class Settings(BaseSettings):
     TYPESAFE_API_KEY: str | None = None
     TYPESAFE_MODEL: str = "jev-latest"
 
+    # Sectors API — IDX market data. Unset key = tools report "not configured"
+    # and no upstream calls are made.
+    SECTORS_API_KEY: str | None = None
+    SECTORS_BASE_URL: str = "https://api.sectors.app"
+    SECTORS_TIMEOUT: float = 20.0
+    # EOD data is published after market close; EOD cache entries expire at the
+    # next weekday occurrence of this hour (Asia/Jakarta).
+    SECTORS_REFRESH_HOUR_WIB: int = 17
+    SECTORS_CACHE_STATIC_DAYS: int = 7
+    SECTORS_CACHE_HISTORICAL_DAYS: int = 30
+    SECTORS_CACHE_NEWS_MINUTES: int = 30
+    SECTORS_TOOL_MAX_CHARS: int = 12_000
+
     CONTEXT_TOKEN_LIMIT: int = 16_000
     KEEP_TURNS: int = 2
     THREAD_TITLE_MAX_CHARS: int = 80
