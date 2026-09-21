@@ -1,4 +1,10 @@
+import asyncio
 import os
+import sys
+
+# psycopg async (LangGraph checkpointer) requires the selector loop on Windows.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # Point the app at a dedicated test database before any app import touches
 # settings. Requires the docker-compose Postgres to be running.

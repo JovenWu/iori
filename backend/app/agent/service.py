@@ -1,0 +1,262 @@
+"""Agent service: Postgres checkpointer, detached turn producer, thread CRUD.
+
+The producer (`run_turn`) is a detached asyncio task — it survives the HTTP
+connection that started it. Tokens stream into the run's replay buffer; on
+stop, whatever accumulated is checkpointed so nothing is lost. After the turn
+settles, a bounded background task extracts memories and refreshes the
+thread digest.
+"""
+
+import asyncio
+import logging
+import uuid
+from typing import Any, Sequence
+
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg_pool import AsyncConnectionPool
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.agent.graph import build_graph
+from app.agent.runs import AgentRun, registry
+from app.core.config import settings
+from app.core.llm import get_chat_model
+from app.db.session import async_session_maker
+from app.memory.digests import maintain_digest
+from app.memory.pipeline import process_turn
+from app.models.thread import Thread
+
+logger = logging.getLogger(__name__)
+
+_pool: AsyncConnectionPool | None = None
+_saver: AsyncPostgresSaver | None = None
+_graph = None
+_memory_sem: asyncio.Semaphore | None = None
+
+
+def _psycopg_dsn() -> str:
+    return (
+        f"postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}"
+        f"@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
+    )
+
+
+async def init_service() -> None:
+    """Open the checkpointer pool and compile the graph. Called from lifespan."""
+    global _pool, _saver, _graph, _memory_sem
+    _pool = AsyncConnectionPool(
+        conninfo=_psycopg_dsn(),
+        max_size=settings.CHECKPOINTER_POOL_MAX_SIZE,
+        open=False,
+        kwargs={"autocommit": True},
+    )
+    await _pool.open()
+    _saver = AsyncPostgresSaver(_pool)
+    await _saver.setup()
+    _graph = build_graph().compile(checkpointer=_saver)
+    _memory_sem = asyncio.Semaphore(settings.MEMORY_BACKGROUND_CONCURRENCY)
+    logger.info("agent service ready (checkpointer pool ≤ %d)", settings.CHECKPOINTER_POOL_MAX_SIZE)
+
+
+async def shutdown_service() -> None:
+    global _pool, _saver, _graph, _memory_sem
+    if _pool is not None:
+        await _pool.close()
+    _pool = _saver = _graph = _memory_sem = None
+
+
+def get_graph():
+    if _graph is None:
+        raise RuntimeError("agent service not initialized")
+    return _graph
+
+
+def thread_lock(thread_id: str) -> asyncio.Lock:
+    return registry.thread_lock(thread_id)
+
+
+# ---------------------------------------------------------------------------
+# Thread CRUD
+# ---------------------------------------------------------------------------
+
+
+async def get_thread(
+    db: AsyncSession, user_id: int, thread_id: str | uuid.UUID
+) -> Thread | None:
+    result = await db.execute(
+        select(Thread).where(Thread.id == thread_id, Thread.user_id == user_id)
+    )
+    return result.scalars().first()
+
+
+async def get_or_create_thread(
+    db: AsyncSession, user_id: int, thread_id: str | uuid.UUID | None
+) -> Thread:
+    if thread_id is not None:
+        thread = await get_thread(db, user_id, thread_id)
+        if thread is None:
+            raise LookupError("Thread not found")
+        return thread
+    thread = Thread(user_id=user_id)
+    db.add(thread)
+    await db.commit()
+    await db.refresh(thread)
+    return thread
+
+
+async def list_threads(db: AsyncSession, user_id: int) -> list[Thread]:
+    result = await db.execute(
+        select(Thread)
+        .where(Thread.user_id == user_id)
+        .order_by(Thread.updated_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def delete_thread(
+    db: AsyncSession, user_id: int, thread_id: str | uuid.UUID
+) -> bool:
+    thread = await get_thread(db, user_id, thread_id)
+    if thread is None:
+        return False
+    await db.delete(thread)  # FK cascade removes its digest
+    await db.commit()
+    if _saver is not None:
+        try:
+            await _saver.adelete_thread(str(thread_id))
+        except Exception:
+            logger.exception("delete_thread: checkpoint purge failed for %s", thread_id)
+    return True
+
+
+async def get_thread_messages(thread_id: str | uuid.UUID) -> list[dict]:
+    """Serialize the checkpointed message history for the API."""
+    config = {"configurable": {"thread_id": str(thread_id)}}
+    state = await get_graph().aget_state(config)
+    values = state.values if state else {}
+    out = []
+    for m in values.get("messages", []):
+        if isinstance(m, HumanMessage):
+            role = "user"
+        elif isinstance(m, AIMessage):
+            role = "assistant"
+        else:
+            continue
+        if isinstance(m.content, str):
+            out.append({"role": role, "content": m.content})
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Turn producer (detached)
+# ---------------------------------------------------------------------------
+
+
+async def run_turn(
+    run: AgentRun, user_id: int, thread_id: str, user_msg: str
+) -> None:
+    """Stream the graph for one turn into `run`'s buffer. Never raises."""
+    graph = get_graph()
+    config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
+    accumulated = ""
+    final_answer = ""
+    try:
+        async with async_session_maker() as db:
+            config["configurable"]["db"] = db
+            async for kind, payload in graph.astream(
+                {"messages": [HumanMessage(content=user_msg)]},
+                config,
+                stream_mode=["messages", "updates"],
+            ):
+                if kind == "messages":
+                    msg, meta = payload
+                    if (
+                        meta.get("langgraph_node") == "agent"
+                        and isinstance(msg, AIMessageChunk)
+                        and isinstance(msg.content, str)
+                    ):
+                        accumulated += msg.content
+                        run.emit("token", msg.content)
+                elif kind == "updates":
+                    update = payload.get("agent") or {}
+                    for m in update.get("messages", []):
+                        if isinstance(m, AIMessage) and isinstance(m.content, str):
+                            final_answer = m.content
+        answer = accumulated or final_answer
+        run.emit("done", {"answer": answer, "thread_id": thread_id})
+    except asyncio.CancelledError:
+        # Stop requested: checkpoint whatever partial answer accumulated.
+        if accumulated:
+            try:
+                await graph.aupdate_state(
+                    config, {"messages": [AIMessage(content=accumulated)]}
+                )
+            except Exception:
+                logger.exception("run_turn: partial save failed")
+        run.emit("stopped", {"answer": accumulated, "thread_id": thread_id})
+    except Exception:
+        logger.exception("run_turn failed for thread %s", thread_id)
+        run.emit("error", "Generation failed.")
+    finally:
+        registry.finish(run)
+        asyncio.create_task(_post_turn(user_id, thread_id))
+
+
+# ---------------------------------------------------------------------------
+# Post-turn housekeeping
+# ---------------------------------------------------------------------------
+
+
+async def _generate_title(user_msg: str) -> str:
+    llm = get_chat_model(settings.CLASSIFIER_MODEL, temperature=0, timeout=20)
+    try:
+        resp = await llm.ainvoke(
+            "Write a 3-6 word conversation title (no quotes, no punctuation) "
+            f"for a chat that starts with: {user_msg[:300]}"
+        )
+        return resp.content.strip()[: settings.THREAD_TITLE_MAX_CHARS]
+    except Exception:
+        logger.exception("_generate_title failed")
+        return ""
+
+
+async def _post_turn(user_id: int, thread_id: str) -> None:
+    """Memory extraction + digest refresh + title. Best-effort, never raises."""
+    assert _memory_sem is not None
+    async with _memory_sem:
+        try:
+            config = {"configurable": {"thread_id": thread_id}}
+            state = await get_graph().aget_state(config)
+            values = state.values if state else {}
+            messages: Sequence[BaseMessage] = values.get("messages", [])
+            if len(messages) < 2:
+                return
+            user_msg = next(
+                (m.content for m in reversed(messages) if isinstance(m, HumanMessage)),
+                "",
+            )
+            ai_msg = next(
+                (m.content for m in reversed(messages) if isinstance(m, AIMessage)),
+                "",
+            )
+            if not isinstance(user_msg, str) or not isinstance(ai_msg, str):
+                return
+            summary = values.get("summary", "") or ""
+
+            async with async_session_maker() as db:
+                await process_turn(
+                    user_id, thread_id, user_msg, ai_msg, summary, messages, db
+                )
+                thread = await get_thread(db, user_id, thread_id)
+                title = thread.title if thread else None
+                await maintain_digest(
+                    db, user_id, thread_id, title, summary, messages
+                )
+                if thread is not None and not thread.title:
+                    thread.title = await _generate_title(user_msg)
+                if thread is not None and not thread.first_answer_preview:
+                    thread.first_answer_preview = ai_msg[:200]
+                await db.commit()
+        except Exception:
+            logger.exception("_post_turn failed for thread %s", thread_id)

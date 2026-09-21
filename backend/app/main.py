@@ -2,7 +2,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import asyncio
 import logging
+import sys
+
+# psycopg async (LangGraph checkpointer) requires the selector loop on Windows.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -44,9 +50,14 @@ async def lifespan(app: FastAPI):
         logger.critical(msg)
         raise RuntimeError(msg)
 
-    yield
+    from app.agent import service
 
-    logger.info("Shutdown complete.")
+    await service.init_service()
+    try:
+        yield
+    finally:
+        await service.shutdown_service()
+        logger.info("Shutdown complete.")
 
 
 _docs_kwargs = (

@@ -1,0 +1,152 @@
+"""Chat + threads: SSE streaming (detached runs), resume, stop, CRUD."""
+
+import asyncio
+import json
+import logging
+import uuid
+from typing import Any, AsyncIterator
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.agent import service
+from app.agent.runs import AgentRun, RunLimitError, registry
+from app.api import deps
+from app.models.user import User
+from app.schemas.chat import (
+    ChatStreamRequest,
+    StopOut,
+    ThreadDetailOut,
+    ThreadListOut,
+    ThreadOut,
+)
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+    "Connection": "keep-alive",
+}
+
+
+def _sse(event: dict[str, Any]) -> str:
+    return f"data: {json.dumps(event)}\n\n"
+
+
+async def _event_stream(run: AgentRun, last_seq: int = 0) -> AsyncIterator[str]:
+    queue = run.subscribe(last_seq)
+    try:
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            yield _sse(event)
+    finally:
+        run.unsubscribe(queue)
+
+
+@router.post("/chat/stream")
+async def chat_stream(
+    body: ChatStreamRequest,
+    current_user: User = Depends(deps.get_current_user),
+    db: AsyncSession = Depends(deps.get_db),
+) -> Any:
+    """Start a new turn. The run is detached: generation continues if the
+    client disconnects; GET /threads/{id}/stream replays missed events."""
+    # Resolve (or create) the thread first so we can key the mutation lock.
+    try:
+        thread = await service.get_or_create_thread(
+            db, current_user.id, body.thread_id
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    tid = str(thread.id)
+
+    async with service.thread_lock(tid):
+        await registry.stop_and_wait(tid)  # a new turn supersedes any live run
+        try:
+            run = registry.start_run(current_user.id, tid)
+        except RunLimitError as exc:
+            raise HTTPException(status_code=429, detail=str(exc))
+        run.task = asyncio.create_task(
+            service.run_turn(run, current_user.id, tid, body.message)
+        )
+
+    return StreamingResponse(
+        _event_stream(run), media_type="text/event-stream", headers=_SSE_HEADERS
+    )
+
+
+@router.get("/threads/{thread_id}/stream")
+async def thread_stream(
+    thread_id: uuid.UUID,
+    last_seq: int = Query(0, ge=0),
+    current_user: User = Depends(deps.get_current_user),
+    db: AsyncSession = Depends(deps.get_db),
+) -> Any:
+    """Re-attach to a run (or replay a finished one within its linger window)."""
+    thread = await service.get_thread(db, current_user.id, thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    run = registry.get(str(thread_id))
+    if run is None:
+        raise HTTPException(status_code=404, detail="No run for this thread")
+    return StreamingResponse(
+        _event_stream(run, last_seq),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
+@router.post("/threads/{thread_id}/stop", response_model=StopOut)
+async def stop_thread(
+    thread_id: uuid.UUID,
+    current_user: User = Depends(deps.get_current_user),
+    db: AsyncSession = Depends(deps.get_db),
+) -> Any:
+    thread = await service.get_thread(db, current_user.id, thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    stopped = await registry.stop_and_wait(str(thread_id))
+    return {"detail": "Stop requested" if stopped else "No active run", "stopped": stopped}
+
+
+@router.get("/threads", response_model=ThreadListOut)
+async def list_threads(
+    current_user: User = Depends(deps.get_current_user),
+    db: AsyncSession = Depends(deps.get_db),
+) -> Any:
+    threads = await service.list_threads(db, current_user.id)
+    return {"threads": threads}
+
+
+@router.get("/threads/{thread_id}", response_model=ThreadDetailOut)
+async def get_thread(
+    thread_id: uuid.UUID,
+    current_user: User = Depends(deps.get_current_user),
+    db: AsyncSession = Depends(deps.get_db),
+) -> Any:
+    thread = await service.get_thread(db, current_user.id, thread_id)
+    if thread is None:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    messages = await service.get_thread_messages(thread_id)
+    return {**ThreadOut.model_validate(thread).model_dump(), "messages": messages}
+
+
+@router.delete("/threads/{thread_id}")
+async def delete_thread(
+    thread_id: uuid.UUID,
+    current_user: User = Depends(deps.get_current_user),
+    db: AsyncSession = Depends(deps.get_db),
+) -> Any:
+    tid = str(thread_id)
+    async with service.thread_lock(tid):
+        await registry.stop_and_wait(tid)
+        deleted = await service.delete_thread(db, current_user.id, thread_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return {"detail": "Thread deleted", "thread_id": tid}
