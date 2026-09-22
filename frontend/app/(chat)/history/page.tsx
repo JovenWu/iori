@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   CheckIcon,
@@ -173,6 +173,9 @@ function titleOf(thread: Thread): string {
 export default function HistoryPage() {
   const threads = useThreadsStore((s) => s.threads);
   const loaded = useThreadsStore((s) => s.loaded);
+  const hasMore = useThreadsStore((s) => s.nextCursor !== null);
+  const loadingMore = useThreadsStore((s) => s.loadingMore);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("newest");
   // Tick once a minute so day buckets and timestamps stay honest without
@@ -191,6 +194,22 @@ export default function HistoryPage() {
     const timer = window.setInterval(() => setNow(Date.now()), MINUTE);
     return () => window.clearInterval(timer);
   }, []);
+
+  // If the loaded pages can't fill the viewport there's no scrollbar to
+  // trigger the next fetch — pull it eagerly instead.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && hasMore && !loadingMore && el.scrollHeight <= el.clientHeight) {
+      void useThreadsStore.getState().loadMore();
+    }
+  }, [threads, hasMore, loadingMore]);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 240) {
+      void useThreadsStore.getState().loadMore();
+    }
+  };
 
   const filteredThreads = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -231,7 +250,11 @@ export default function HistoryPage() {
       {/* SidebarInset is h-svh + overflow-hidden — this is the scroll region.
           Full width so the scrollbar sits at the viewport edge, not the
           centered column's. */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
         <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-16 pt-20 md:pt-24">
         {/* Header */}
         <div className="flex items-end justify-between gap-4">
@@ -242,7 +265,7 @@ export default function HistoryPage() {
                 ? "Loading your conversations…"
                 : threads.length === 0
                   ? "Your past conversations live here"
-                  : `${filteredThreads.length} of ${threads.length} conversation${threads.length === 1 ? "" : "s"}`}
+                  : `${filteredThreads.length} of ${threads.length}${hasMore ? "+" : ""} conversation${threads.length === 1 && !hasMore ? "" : "s"}`}
             </p>
           </div>
         </div>
@@ -380,6 +403,13 @@ export default function HistoryPage() {
                 </div>
               </section>
             ))}
+            {loadingMore && (
+              <div className="space-y-1" role="status" aria-label="Loading more">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} className="h-14 w-full rounded-xl" />
+                ))}
+              </div>
+            )}
           </div>
         )}
         </div>

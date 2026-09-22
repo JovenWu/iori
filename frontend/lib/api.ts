@@ -151,7 +151,19 @@ export class ApiError extends Error {
   }
 }
 
-export const listThreads = () => apiFetch<{ threads: Thread[] }>("/threads");
+export interface ThreadListPage {
+  threads: Thread[];
+  /** Pass back as `cursor` for the next page; null when the list is done. */
+  next_cursor: string | null;
+}
+
+export const listThreads = (opts?: { limit?: number; cursor?: string }) => {
+  const params = new URLSearchParams();
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  if (opts?.cursor) params.set("cursor", opts.cursor);
+  const qs = params.toString();
+  return apiFetch<ThreadListPage>(`/threads${qs ? `?${qs}` : ""}`);
+};
 export const getThread = (id: string) => apiFetch<ThreadDetail>(`/threads/${id}`);
 export const deleteThread = (id: string) =>
   apiFetch<{ detail: string }>(`/threads/${id}`, { method: "DELETE" });

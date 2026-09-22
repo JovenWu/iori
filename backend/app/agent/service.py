@@ -10,12 +10,13 @@ thread digest.
 import asyncio
 import logging
 import uuid
+from datetime import datetime
 from typing import Sequence
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
-from sqlalchemy import select, update
+from sqlalchemy import select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.graph import build_graph
@@ -124,13 +125,32 @@ async def get_or_create_thread(
     return thread
 
 
-async def list_threads(db: AsyncSession, user_id: int) -> list[Thread]:
-    result = await db.execute(
+async def list_threads(
+    db: AsyncSession,
+    user_id: int,
+    *,
+    limit: int = 20,
+    before: tuple[datetime, uuid.UUID] | None = None,
+) -> tuple[list[Thread], str | None]:
+    """Keyset-paginate on (updated_at, id): updated_at moves on every turn, so
+    offset paging would skip/duplicate rows as the list shifts."""
+    stmt = (
         select(Thread)
         .where(Thread.user_id == user_id)
-        .order_by(Thread.updated_at.desc())
+        .order_by(Thread.updated_at.desc(), Thread.id.desc())
+        .limit(limit + 1)  # one extra row to know whether a next page exists
     )
-    return list(result.scalars().all())
+    if before is not None:
+        stmt = stmt.where(tuple_(Thread.updated_at, Thread.id) < before)
+    rows = list((await db.execute(stmt)).scalars().all())
+    has_more = len(rows) > limit
+    threads = rows[:limit]
+    next_cursor = (
+        f"{threads[-1].updated_at.isoformat()}_{threads[-1].id}"
+        if has_more
+        else None
+    )
+    return threads, next_cursor
 
 
 async def update_thread(

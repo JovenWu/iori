@@ -42,6 +42,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useThreadActions } from "@/hooks/use-thread-actions";
 import type { Thread } from "@/lib/api";
+import { markdownToPlainText } from "@/lib/markdown";
 import { useChatStore } from "@/lib/stores/chat";
 import { useThreadsStore } from "@/lib/stores/threads";
 
@@ -81,7 +82,10 @@ function switcherGroupFor(value: string, now: number) {
 }
 
 function threadLabel(thread: Thread) {
-  return thread.title ?? thread.first_answer_preview ?? "Untitled";
+  return (
+    thread.title ??
+    (markdownToPlainText(thread.first_answer_preview ?? "") || "Untitled")
+  );
 }
 
 interface ThreadSwitcherProps {
@@ -111,7 +115,7 @@ function ThreadSwitcher({ currentThreadId, title, loading }: ThreadSwitcherProps
   const groups = useMemo(() => {
     if (!threadsLoaded) return [];
     const buckets = new Map<string, Thread[]>();
-    for (const thread of threads) {
+    for (const thread of threads.slice(0, 20)) {
       const label = thread.starred
         ? "Starred"
         : switcherGroupFor(thread.updated_at, now);

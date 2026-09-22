@@ -27,6 +27,7 @@ class ThreadOut(BaseModel):
 
 class ThreadListOut(BaseModel):
     threads: list[ThreadOut]
+    next_cursor: str | None = None
 
 
 class ChatMessageOut(BaseModel):

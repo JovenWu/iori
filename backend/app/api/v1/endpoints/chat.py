@@ -5,6 +5,7 @@ import json
 import logging
 import time
 import uuid
+from datetime import datetime
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -125,11 +126,24 @@ async def stop_thread(
 
 @router.get("/threads", response_model=ThreadListOut)
 async def list_threads(
+    limit: int = Query(20, ge=1, le=100),
+    cursor: str | None = Query(None),
     current_user: User = Depends(deps.get_current_user),
     db: AsyncSession = Depends(deps.get_db),
 ) -> Any:
-    threads = await service.list_threads(db, current_user.id)
-    return {"threads": threads}
+    before: tuple[datetime, uuid.UUID] | None = None
+    if cursor:
+        raw_updated, sep, raw_id = cursor.rpartition("_")
+        try:
+            if not sep:
+                raise ValueError
+            before = (datetime.fromisoformat(raw_updated), uuid.UUID(raw_id))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid cursor")
+    threads, next_cursor = await service.list_threads(
+        db, current_user.id, limit=limit, before=before
+    )
+    return {"threads": threads, "next_cursor": next_cursor}
 
 
 @router.get("/threads/{thread_id}", response_model=ThreadDetailOut)

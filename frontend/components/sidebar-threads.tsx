@@ -21,6 +21,7 @@ import {
   SquarePlus,
 } from "lucide-react";
 import type { Thread } from "@/lib/api";
+import { markdownToPlainText } from "@/lib/markdown";
 import { ThreadActionsMenu } from "@/components/thread-actions-menu";
 import { ThreadActionDialogs } from "@/components/thread-action-dialogs";
 import { useThreadActions } from "@/hooks/use-thread-actions";
@@ -28,7 +29,10 @@ import { useChatStore } from "@/lib/stores/chat";
 import { useThreadsStore } from "@/lib/stores/threads";
 
 function threadTitle(thread: Thread): string {
-  return thread.title ?? thread.first_answer_preview ?? "Untitled";
+  return (
+    thread.title ??
+    (markdownToPlainText(thread.first_answer_preview ?? "") || "Untitled")
+  );
 }
 
 export function SidebarThreads() {
@@ -36,6 +40,7 @@ export function SidebarThreads() {
   const pathname = usePathname();
   const threads = useThreadsStore((s) => s.threads);
   const loaded = useThreadsStore((s) => s.loaded);
+  const hasMore = useThreadsStore((s) => s.nextCursor !== null);
 
   // First fetch + resume watching threads whose first turn may still be in
   // flight. The store owns the list, watchers, and pending flags from here.
@@ -46,7 +51,8 @@ export function SidebarThreads() {
   const threadActions = useThreadActions();
 
   const recentThreads = threads.slice(0, RECENT_LIMIT);
-  const shouldShowViewAll = threads.length > RECENT_LIMIT;
+  // More rows may exist server-side even when only page one is loaded.
+  const shouldShowViewAll = hasMore || threads.length > RECENT_LIMIT;
 
   return (
     <SidebarGroup className="h-full min-h-0">
@@ -222,6 +228,7 @@ export function SidebarThreads() {
         }}
         onSubmitRename={threadActions.submitRename}
         onSubmitDelete={threadActions.submitDelete}
+        preventCloseAutoFocus
       />
     </SidebarGroup>
   );

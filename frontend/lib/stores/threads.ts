@@ -24,10 +24,16 @@ interface ThreadsStore {
   threads: ListedThread[];
   /** False until the first listThreads fetch resolves. */
   loaded: boolean;
+  /** Keyset cursor for the next page — null once every thread is loaded. */
+  nextCursor: string | null;
+  loadingMore: boolean;
   finishedRun: FinishedRun | null;
   /** First-load fetch, then probe preview-less threads for live runs. */
   init: () => void;
+  /** Refetch the first page; keeps already-loaded deeper pages in place. */
   refresh: () => Promise<void>;
+  /** Fetch the next page and append it — no-op when done or in flight. */
+  loadMore: () => Promise<void>;
   /** Refetch now, then twice more — the LLM title is written just after the
    * run closes, so delayed fetches land it without a manual refresh. */
   refetchSoon: () => void;
@@ -63,9 +69,13 @@ const watchers = new Map<string, AbortController>();
 const refetchTimers = new Set<number>();
 let probed = false;
 
+const PAGE_SIZE = 20;
+
 const initialState = {
   threads: [] as ListedThread[],
   loaded: false,
+  nextCursor: null as string | null,
+  loadingMore: false,
   finishedRun: null as FinishedRun | null,
 };
 
@@ -90,14 +100,19 @@ export const useThreadsStore = create<ThreadsStore>()((set, get) => ({
   refresh: async () => {
     if (!getAccessToken()) return;
     try {
-      const data = await listThreads();
+      const data = await listThreads({ limit: PAGE_SIZE });
       set((s) => {
         const prevById = new Map(s.threads.map((t) => [t.id, t]));
         const fetchedIds = new Set(data.threads.map((t) => t.id));
-        // Rows that outrun the server list stay only while still pending —
-        // anything else missing was deleted elsewhere.
-        const optimistic = s.threads.filter(
-          (t) => !fetchedIds.has(t.id) && t.isPending,
+        const hasMore = data.next_cursor !== null;
+        const cutoff = getTimestamp(data.threads.at(-1)?.updated_at ?? "");
+        // Rows missing from page one survive only if still pending, or if they
+        // sit below the page cutoff — i.e. they came from deeper loadMore
+        // pages. Anything else missing was deleted elsewhere.
+        const keepers = s.threads.filter(
+          (t) =>
+            !fetchedIds.has(t.id) &&
+            (t.isPending || (hasMore && getTimestamp(t.updated_at) < cutoff)),
         );
         const fetched: ListedThread[] = data.threads.map((t) => ({
           ...t,
@@ -107,13 +122,42 @@ export const useThreadsStore = create<ThreadsStore>()((set, get) => ({
           isPending: prevById.get(t.id)?.isPending ?? false,
         }));
         return {
-          threads: sortThreadsByUpdatedAt([...optimistic, ...fetched]),
+          threads: sortThreadsByUpdatedAt([...keepers, ...fetched]),
           loaded: true,
+          nextCursor: data.next_cursor,
         };
       });
     } catch (err) {
       console.error("Failed to fetch threads:", err);
       set({ loaded: true });
+    }
+  },
+
+  loadMore: async () => {
+    const { nextCursor, loadingMore } = get();
+    if (nextCursor === null || loadingMore || !getAccessToken()) return;
+    set({ loadingMore: true });
+    try {
+      const data = await listThreads({ limit: PAGE_SIZE, cursor: nextCursor });
+      set((s) => {
+        const byId = new Map(s.threads.map((t) => [t.id, t]));
+        for (const t of data.threads) {
+          // Re-fetched rows may overlap page one after reordering — upsert.
+          byId.set(t.id, {
+            ...t,
+            title: t.title ?? byId.get(t.id)?.title ?? null,
+            isPending: byId.get(t.id)?.isPending ?? false,
+          });
+        }
+        return {
+          threads: sortThreadsByUpdatedAt([...byId.values()]),
+          nextCursor: data.next_cursor,
+          loadingMore: false,
+        };
+      });
+    } catch (err) {
+      console.error("Failed to load more threads:", err);
+      set({ loadingMore: false });
     }
   },
 
