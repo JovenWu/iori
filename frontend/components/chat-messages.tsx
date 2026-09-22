@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { AgentStatus, type ToolActivity } from "@/components/agent-status";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export type Message = {
@@ -172,6 +173,37 @@ export function ChatMessages({
           </div>
         ))}
         <div ref={endRef} />
+      </div>
+    </div>
+  );
+}
+
+/** Placeholder rows in the same column shape as ChatMessages while a
+ * thread's history is being fetched. */
+export function ChatMessagesSkeleton() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading conversation"
+      // Same centering trick as the real list — stable gutter on both edges —
+      // so the column doesn't shift sideways when messages replace it.
+      className="flex min-h-0 w-full flex-1 flex-col overflow-hidden [scrollbar-gutter:stable_both-edges]"
+    >
+      <span className="sr-only">Loading conversation…</span>
+      <div className="mx-auto flex w-full max-w-[46rem] flex-col gap-8 px-4 py-6">
+        <Skeleton className="ml-auto h-9 w-56 rounded-2xl rounded-br-md" />
+        <div className="space-y-2.5">
+          <Skeleton className="h-3.5 w-full" />
+          <Skeleton className="h-3.5 w-11/12" />
+          <Skeleton className="h-3.5 w-3/5" />
+        </div>
+        <Skeleton className="ml-auto h-9 w-40 rounded-2xl rounded-br-md" />
+        <div className="space-y-2.5">
+          <Skeleton className="h-3.5 w-full" />
+          <Skeleton className="h-3.5 w-5/6" />
+          <Skeleton className="h-3.5 w-4/6" />
+          <Skeleton className="h-3.5 w-2/5" />
+        </div>
       </div>
     </div>
   );

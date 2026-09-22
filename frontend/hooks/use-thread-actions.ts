@@ -1,16 +1,20 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { toast } from "sonner";
 import { deleteThread, updateThread } from "@/lib/api";
 import {
   THREAD_DELETED_EVENT,
   THREAD_RENAMED_EVENT,
+  THREADS_REFRESH_EVENT,
   emitThreadEvent,
   type ThreadDeletedEventDetail,
   type ThreadRenamedEventDetail,
 } from "@/lib/thread-events";
 
 const THREAD_TITLE_CHAR_LIMIT = 100;
+/** How long the delete toast offers Undo before the DELETE request fires. */
+const DELETE_UNDO_MS = 6000;
 
 export interface ThreadActionTarget {
   threadId: string;
@@ -52,6 +56,30 @@ export function useThreadActions(options: UseThreadActionsOptions) {
     setDeleteTarget(null);
   }, []);
 
+  const applyTitle = useCallback(
+    async (threadId: string, title: string) => {
+      await updateThread(threadId, { title });
+      emitThreadEvent<ThreadRenamedEventDetail>(THREAD_RENAMED_EVENT, {
+        threadId,
+        title,
+      });
+      onRenamed(threadId, title);
+    },
+    [onRenamed],
+  );
+
+  const restoreTitle = useCallback(
+    async (threadId: string, title: string) => {
+      try {
+        await applyTitle(threadId, title);
+      } catch (err) {
+        console.error("Failed to restore thread title:", err);
+        toast.error("Couldn't undo the rename");
+      }
+    },
+    [applyTitle],
+  );
+
   const submitRename = useCallback(async () => {
     if (!renameTarget || isRenaming) return;
 
@@ -70,38 +98,72 @@ export function useThreadActions(options: UseThreadActionsOptions) {
 
     setIsRenaming(true);
 
+    const { threadId, title: previousTitle } = renameTarget;
+
     try {
-      await updateThread(renameTarget.threadId, { title: nextTitle });
-      emitThreadEvent<ThreadRenamedEventDetail>(THREAD_RENAMED_EVENT, {
-        threadId: renameTarget.threadId,
-        title: nextTitle,
-      });
-      onRenamed(renameTarget.threadId, nextTitle);
+      await applyTitle(threadId, nextTitle);
       closeRename();
+      toast.success("Renamed thread", {
+        action: {
+          label: "Undo",
+          onClick: () => void restoreTitle(threadId, previousTitle),
+        },
+      });
     } catch (err) {
       console.error("Failed to rename thread:", err);
+      toast.error("Couldn't rename the thread");
     } finally {
       setIsRenaming(false);
     }
-  }, [renameTarget, isRenaming, renameValue, onRenamed, closeRename]);
+  }, [
+    renameTarget,
+    isRenaming,
+    renameValue,
+    closeRename,
+    applyTitle,
+    restoreTitle,
+  ]);
 
   const submitDelete = useCallback(async () => {
     if (!deleteTarget || isDeleting) return;
 
     setIsDeleting(true);
+    const { threadId } = deleteTarget;
 
-    try {
-      await deleteThread(deleteTarget.threadId);
-      emitThreadEvent<ThreadDeletedEventDetail>(THREAD_DELETED_EVENT, {
-        threadId: deleteTarget.threadId,
+    // Optimistic: remove the row everywhere now. The actual DELETE only fires
+    // once the toast closes — Undo within the window cancels it entirely.
+    emitThreadEvent<ThreadDeletedEventDetail>(THREAD_DELETED_EVENT, {
+      threadId,
+    });
+    onDeleted(threadId);
+    closeDelete();
+    setIsDeleting(false);
+
+    let undone = false;
+    let committed = false;
+    // Sonner fires onAutoClose then onDismiss on expiry — commit must be
+    // idempotent or the DELETE (and its potential error toast) runs twice.
+    const commit = () => {
+      if (undone || committed) return;
+      committed = true;
+      void deleteThread(threadId).catch((err) => {
+        console.error("Failed to delete thread:", err);
+        toast.error("Couldn't delete the thread");
+        emitThreadEvent(THREADS_REFRESH_EVENT, {});
       });
-      onDeleted(deleteTarget.threadId);
-      closeDelete();
-    } catch (err) {
-      console.error("Failed to delete thread:", err);
-    } finally {
-      setIsDeleting(false);
-    }
+    };
+    toast.success("Deleted thread", {
+      duration: DELETE_UNDO_MS,
+      action: {
+        label: "Undo",
+        onClick: () => {
+          undone = true;
+          emitThreadEvent(THREADS_REFRESH_EVENT, {});
+        },
+      },
+      onAutoClose: commit,
+      onDismiss: commit,
+    });
   }, [deleteTarget, isDeleting, onDeleted, closeDelete]);
 
   return {

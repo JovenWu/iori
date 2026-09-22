@@ -39,6 +39,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useThreadActions } from "@/hooks/use-thread-actions";
 import { listThreads, type Thread } from "@/lib/api";
 import {
@@ -46,6 +47,7 @@ import {
   THREAD_CREATED_EVENT,
   THREAD_DELETED_EVENT,
   THREAD_RENAMED_EVENT,
+  THREADS_REFRESH_EVENT,
   emitThreadEvent,
   type ThreadCreatedEventDetail,
   type ThreadDeletedEventDetail,
@@ -95,10 +97,12 @@ interface ThreadSwitcherProps {
   /** The thread currently on screen — gets the "Current" badge. */
   currentThreadId: string | null;
   title: string;
+  /** Thread history is still loading — show a title-shaped placeholder. */
+  loading?: boolean;
 }
 
 /** Title button + chat-history popover: search, New thread, grouped threads. */
-function ThreadSwitcher({ currentThreadId, title }: ThreadSwitcherProps) {
+function ThreadSwitcher({ currentThreadId, title, loading }: ThreadSwitcherProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -107,14 +111,20 @@ function ThreadSwitcher({ currentThreadId, title }: ThreadSwitcherProps) {
   const [now, setNow] = useState(() => Date.now());
 
   // Fresh list on every open — cheap, and always reflects titles/stars.
+  // Also re-pull on THREADS_REFRESH_EVENT (a delete undo) while open.
   useEffect(() => {
     if (!open) return;
     let live = true;
-    listThreads()
-      .then((data) => live && setThreads(data.threads))
-      .catch(() => live && setThreads([]));
+    const load = () => {
+      listThreads()
+        .then((data) => live && setThreads(data.threads))
+        .catch(() => live && setThreads([]));
+    };
+    load();
+    window.addEventListener(THREADS_REFRESH_EVENT, load);
     return () => {
       live = false;
+      window.removeEventListener(THREADS_REFRESH_EVENT, load);
     };
   }, [open]);
 
@@ -212,6 +222,23 @@ function ThreadSwitcher({ currentThreadId, title }: ThreadSwitcherProps) {
     // Re-anchor relative times/buckets each time the popover opens.
     if (next) setNow(Date.now());
   };
+
+  if (loading) {
+    // Matches the title button's footprint (px-1.5 py-1 + 13px text) so the
+    // header doesn't shift when the real title lands.
+    return (
+      <h1 className="min-w-0">
+        <div
+          role="status"
+          aria-label="Loading conversation title"
+          className="flex items-center px-1.5 py-1"
+        >
+          <Skeleton className="h-3.5 w-36 rounded" />
+          <span className="sr-only">Loading…</span>
+        </div>
+      </h1>
+    );
+  }
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -314,6 +341,8 @@ interface ChatHeaderProps {
   /** Loaded thread on screen (null = fresh new chat). */
   threadId: string | null;
   title: string;
+  /** Thread history is being fetched — title shows a skeleton. */
+  loading?: boolean;
   starred: boolean;
   messages: Message[];
   onToggleStar: () => void;
@@ -324,6 +353,7 @@ interface ChatHeaderProps {
 export function ChatHeader({
   threadId,
   title,
+  loading,
   starred,
   messages,
   onToggleStar,
@@ -370,8 +400,8 @@ export function ChatHeader({
   return (
     <header className="flex h-12 shrink-0 items-center gap-1.5 border-b border-border/60 px-3">
       <SidebarTrigger className="-ml-1" />
-      <ThreadSwitcher currentThreadId={threadId} title={title} />
-      {threadId && (
+      <ThreadSwitcher currentThreadId={threadId} title={title} loading={loading} />
+      {threadId && !loading && (
         <>
           <Button
             variant="ghost"

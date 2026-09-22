@@ -9,10 +9,13 @@ import { useSettings } from "@/lib/settings";
 
 export function ChatInput({
   running,
+  disabled,
   onSend,
   onStop,
 }: {
   running: boolean;
+  /** Greyed out + cannot submit — e.g. while a thread's history is loading. */
+  disabled?: boolean;
   onSend: (text: string) => void;
   onStop: () => void;
 }) {
@@ -22,7 +25,7 @@ export function ChatInput({
 
   function submit() {
     const text = value.trim();
-    if (!text || running) return;
+    if (!text || running || disabled) return;
     onSend(text);
     setValue("");
     if (ref.current) {
@@ -41,6 +44,7 @@ export function ChatInput({
       <Textarea
         ref={ref}
         value={value}
+        disabled={disabled}
         onChange={(e) => {
           setValue(e.target.value);
           autosize(e.target);
@@ -79,7 +83,7 @@ export function ChatInput({
           <Button
             size="icon-sm"
             onClick={submit}
-            disabled={!value.trim()}
+            disabled={!value.trim() || disabled}
             aria-label="Send"
             className="rounded-full"
           >

@@ -6,7 +6,11 @@ import { toast } from "sonner";
 
 import { ChatHeader } from "@/components/chat-header";
 import { ChatInput } from "@/components/chat-input";
-import { ChatMessages, type Message } from "@/components/chat-messages";
+import {
+  ChatMessages,
+  ChatMessagesSkeleton,
+  type Message,
+} from "@/components/chat-messages";
 import { SparkMark } from "@/components/spark-mark";
 import { getThread, stopThread, streamChat, updateThread } from "@/lib/api";
 import { verbFor } from "@/lib/tool-labels";
@@ -72,6 +76,12 @@ export function ChatView({ threadId }: { threadId: string | null }) {
   // True once the live run was handed to the sidebar's watcher — the aborted
   // stream's `finally` must not emit isStreaming=false and kill the handoff.
   const detachedRef = useRef(false);
+  // Mirror of `title` for async callbacks — the title poll compares the
+  // server's title against what's actually on screen after its await.
+  const titleRef = useRef(title);
+  useEffect(() => {
+    titleRef.current = title;
+  }, [title]);
 
   const [prevThread, setPrevThread] = useState(threadId);
   if (prevThread !== threadId) {
@@ -118,6 +128,34 @@ export function ChatView({ threadId }: { threadId: string | null }) {
         router.replace("/");
       });
   }, [threadId, router]);
+
+  /**
+   * Pull the thread title directly once a run ends. The sidebar's refetch
+   * chain only exists while it's mounted — on mobile the sheet unmounts when
+   * closed, so nothing would push the post-turn LLM title to this header.
+   * Re-emitting any change on the bus keeps the header and mounted lists on
+   * the same path, and later ticks self-heal a fetch that raced a rename.
+   */
+  const pollTitle = useCallback((tid: string) => {
+    let attempts = 0;
+    const tick = async () => {
+      if (threadRef.current !== tid) return; // user moved on
+      attempts += 1;
+      try {
+        const { title: next } = await getThread(tid);
+        if (next && next !== titleRef.current) {
+          emitThreadEvent<ThreadRenamedEventDetail>(THREAD_RENAMED_EVENT, {
+            threadId: tid,
+            title: next,
+          });
+        }
+      } catch {
+        return; // thread deleted or transient error — stop polling
+      }
+      if (attempts < 4) window.setTimeout(tick, 2000);
+    };
+    void tick();
+  }, []);
 
   /** Hand the live run to the sidebar's background watcher, then drop it. */
   const detachRun = useCallback(() => {
@@ -313,10 +351,13 @@ export function ChatView({ threadId }: { threadId: string | null }) {
             threadId: threadRef.current,
             isStreaming: false,
           });
+          // The LLM title lands post-turn — poll so the header updates even
+          // when no sidebar is mounted to refetch the list.
+          pollTitle(threadRef.current);
         }
       }
     },
-    [patchMessage],
+    [patchMessage, pollTitle],
   );
 
   const send = useCallback(
@@ -392,38 +433,54 @@ export function ChatView({ threadId }: { threadId: string | null }) {
     if (pathname !== "/") router.push("/");
   }, [pathname, router]);
 
-  const showComposer = !threadId || loadedThread === threadId;
   const isEmpty = messages.length === 0;
   const isLoadingThread = !!threadId && loadedThread !== threadId;
   const headerTitle = title ?? (threadId ? "" : "New thread");
-  const composer = showComposer ? (
-    <ChatInput running={running} onSend={send} onStop={stop} />
-  ) : null;
+  // The composer stays mounted through thread loads — disabled while history
+  // is in flight so a send can't race the getThread message swap.
+  const composer = (
+    <ChatInput
+      running={running}
+      disabled={isLoadingThread}
+      onSend={send}
+      onStop={stop}
+    />
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ChatHeader
         threadId={activeThreadId}
         title={headerTitle}
+        loading={isLoadingThread}
         starred={starred}
         messages={messages}
         onToggleStar={toggleStar}
         onDeleted={handleThreadDeleted}
       />
       {isEmpty ? (
-        /* Fresh chat — Linear-style centered hero + composer. px-4 sits
-            inside max-w-3xl so the box matches the bottom composer exactly. */
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center pb-10">
-          <div className="flex w-full max-w-3xl flex-col items-center px-4">
-            <SparkMark animate className="size-7 text-primary" />
-            <p className="mt-3 text-sm text-muted-foreground">
-              {isLoadingThread
-                ? "Loading thread…"
-                : "Ask about IDX prices, filings, movers, or news."}
-            </p>
-            {composer && <div className="mt-6 w-full">{composer}</div>}
+        isLoadingThread ? (
+          <>
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <ChatMessagesSkeleton />
+            </div>
+            <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pb-4">
+              {composer}
+            </div>
+          </>
+        ) : (
+          /* Fresh chat — Linear-style centered hero + composer. px-4 sits
+             inside max-w-3xl so the box matches the bottom composer exactly. */
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center pb-10">
+            <div className="flex w-full max-w-3xl flex-col items-center px-4">
+              <SparkMark animate className="size-7 text-primary" />
+              <p className="mt-3 text-sm text-muted-foreground">
+                Ask about IDX prices, filings, movers, or news.
+              </p>
+              <div className="mt-6 w-full">{composer}</div>
+            </div>
           </div>
-        </div>
+        )
       ) : (
         <>
           <div className="relative flex min-h-0 flex-1 flex-col">

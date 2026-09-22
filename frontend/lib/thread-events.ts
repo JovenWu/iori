@@ -11,6 +11,9 @@ export const THREAD_RENAMED_EVENT = "agent:thread-renamed";
 export const NEW_THREAD_EVENT = "agent:new-thread";
 /** A thread was deleted on any surface — other views holding it drop the row. */
 export const THREAD_DELETED_EVENT = "agent:thread-deleted";
+/** Thread lists should refetch — e.g. a delete was undone and the row's
+ * server state must be re-pulled (the optimistic removal already happened). */
+export const THREADS_REFRESH_EVENT = "agent:threads-refresh";
 
 export interface ThreadCreatedEventDetail {
   threadId: string;

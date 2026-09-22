@@ -28,6 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { listThreads, type Thread } from "@/lib/api";
+import { THREADS_REFRESH_EVENT } from "@/lib/thread-events";
 import { markdownToPlainText } from "@/lib/markdown";
 import { ThreadActionsMenu } from "@/components/thread-actions-menu";
 import { ThreadActionDialogs } from "@/components/thread-action-dialogs";
@@ -210,7 +211,13 @@ export default function HistoryPage() {
 
   useEffect(() => {
     const t = window.setTimeout(() => void fetchThreads(), 0);
-    return () => window.clearTimeout(t);
+    // A delete was undone (or its commit failed) — re-pull so the row returns.
+    const onRefresh = () => void fetchThreads();
+    window.addEventListener(THREADS_REFRESH_EVENT, onRefresh);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener(THREADS_REFRESH_EVENT, onRefresh);
+    };
   }, [fetchThreads]);
 
   useEffect(() => {
@@ -254,7 +261,11 @@ export default function HistoryPage() {
         </div>
       </div>
 
-      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 pb-16 pt-20 md:pt-24">
+      {/* SidebarInset is h-svh + overflow-hidden — this is the scroll region.
+          Full width so the scrollbar sits at the viewport edge, not the
+          centered column's. */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-16 pt-20 md:pt-24">
         {/* Header */}
         <div className="flex items-end justify-between gap-4">
           <div>
@@ -404,6 +415,7 @@ export default function HistoryPage() {
             ))}
           </div>
         )}
+        </div>
       </div>
 
       <ThreadActionDialogs

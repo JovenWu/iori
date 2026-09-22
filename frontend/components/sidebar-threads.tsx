@@ -34,6 +34,7 @@ import {
   THREAD_STREAM_DETACHED_EVENT,
   THREAD_RENAMED_EVENT,
   THREAD_DELETED_EVENT,
+  THREADS_REFRESH_EVENT,
   NEW_THREAD_EVENT,
   emitThreadEvent,
   type ThreadCreatedEventDetail,
@@ -377,6 +378,10 @@ export function SidebarThreads() {
       );
     };
 
+    // An optimistic delete was undone (or its commit failed) — re-pull so the
+    // row comes back exactly as the server has it.
+    const handleThreadsRefresh = () => void fetchThreads();
+
     window.addEventListener(
       THREAD_CREATED_EVENT,
       handleThreadCreated as EventListener,
@@ -396,6 +401,10 @@ export function SidebarThreads() {
     window.addEventListener(
       THREAD_DELETED_EVENT,
       handleThreadDeleted as EventListener,
+    );
+    window.addEventListener(
+      THREADS_REFRESH_EVENT,
+      handleThreadsRefresh as EventListener,
     );
 
     return () => {
@@ -418,6 +427,10 @@ export function SidebarThreads() {
       window.removeEventListener(
         THREAD_DELETED_EVENT,
         handleThreadDeleted as EventListener,
+      );
+      window.removeEventListener(
+        THREADS_REFRESH_EVENT,
+        handleThreadsRefresh as EventListener,
       );
     };
   }, [fetchThreads, verifyAndWatch, clearThreadPending, refetchSoon]);
