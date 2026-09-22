@@ -17,6 +17,8 @@ import {
   storeAuthUser,
   type User,
 } from "@/lib/api"
+import { resetChatStore } from "@/lib/stores/chat"
+import { resetThreadsStore } from "@/lib/stores/threads"
 import { useRouter, usePathname } from "next/navigation"
 
 interface AuthContextValue {
@@ -49,6 +51,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return true
     } catch {
       clearTokens()
+      // Session is dead — drop cached app state so a fresh login never sees
+      // the previous user's threads or chat.
+      resetChatStore()
+      resetThreadsStore()
       setToken(null)
       setUser(null)
       return false
@@ -95,6 +101,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     void apiLogout()
+    resetChatStore()
+    resetThreadsStore()
     setToken(null)
     setUser(null)
     router.replace("/login")

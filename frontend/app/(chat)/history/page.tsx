@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   CheckIcon,
@@ -26,13 +26,12 @@ import {
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/lib/auth";
-import { listThreads, type Thread } from "@/lib/api";
-import { THREADS_REFRESH_EVENT } from "@/lib/thread-events";
+import type { Thread } from "@/lib/api";
 import { markdownToPlainText } from "@/lib/markdown";
 import { ThreadActionsMenu } from "@/components/thread-actions-menu";
 import { ThreadActionDialogs } from "@/components/thread-action-dialogs";
 import { useThreadActions } from "@/hooks/use-thread-actions";
+import { useThreadsStore } from "@/lib/stores/threads";
 
 type SortOption = "newest" | "oldest";
 
@@ -172,53 +171,21 @@ function titleOf(thread: Thread): string {
 }
 
 export default function HistoryPage() {
-  const { token } = useAuth();
-  const [threads, setThreads] = useState<Thread[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const threads = useThreadsStore((s) => s.threads);
+  const loaded = useThreadsStore((s) => s.loaded);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("newest");
   // Tick once a minute so day buckets and timestamps stay honest without
   // re-rendering the whole list every second.
   const [now, setNow] = useState(() => Date.now());
 
-  const threadActions = useThreadActions({
-    onRenamed: (threadId, nextTitle) => {
-      setThreads((prev) =>
-        prev.map((thread) =>
-          thread.id === threadId ? { ...thread, title: nextTitle } : thread,
-        ),
-      );
-    },
-    onDeleted: (threadId) => {
-      setThreads((prev) => prev.filter((thread) => thread.id !== threadId));
-    },
-  });
+  const threadActions = useThreadActions();
 
-  const fetchThreads = useCallback(async () => {
-    if (!token) return;
-
-    setIsLoading(true);
-
-    try {
-      const data = await listThreads();
-      setThreads(data.threads);
-    } catch (err) {
-      console.error("Failed to fetch thread history list:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [token]);
-
+  // Fresh pull on mount; later edits (rename/delete/undo) arrive through the
+  // shared store, so no listener wiring lives here.
   useEffect(() => {
-    const t = window.setTimeout(() => void fetchThreads(), 0);
-    // A delete was undone (or its commit failed) — re-pull so the row returns.
-    const onRefresh = () => void fetchThreads();
-    window.addEventListener(THREADS_REFRESH_EVENT, onRefresh);
-    return () => {
-      window.clearTimeout(t);
-      window.removeEventListener(THREADS_REFRESH_EVENT, onRefresh);
-    };
-  }, [fetchThreads]);
+    void useThreadsStore.getState().refresh();
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), MINUTE);
@@ -271,7 +238,7 @@ export default function HistoryPage() {
           <div>
             <h1 className="text-xl font-semibold tracking-tight">History</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {isLoading
+              {!loaded
                 ? "Loading your conversations…"
                 : threads.length === 0
                   ? "Your past conversations live here"
@@ -297,7 +264,7 @@ export default function HistoryPage() {
         </div>
 
         {/* List */}
-        {isLoading ? (
+        {!loaded ? (
           <div className="mt-8 space-y-8">
             {[3, 2].map((rows, group) => (
               <div key={group}>

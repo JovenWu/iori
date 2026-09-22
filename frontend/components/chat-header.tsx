@@ -41,18 +41,9 @@ import {
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useThreadActions } from "@/hooks/use-thread-actions";
-import { listThreads, type Thread } from "@/lib/api";
-import {
-  NEW_THREAD_EVENT,
-  THREAD_CREATED_EVENT,
-  THREAD_DELETED_EVENT,
-  THREAD_RENAMED_EVENT,
-  THREADS_REFRESH_EVENT,
-  emitThreadEvent,
-  type ThreadCreatedEventDetail,
-  type ThreadDeletedEventDetail,
-  type ThreadRenamedEventDetail,
-} from "@/lib/thread-events";
+import type { Thread } from "@/lib/api";
+import { useChatStore } from "@/lib/stores/chat";
+import { useThreadsStore } from "@/lib/stores/threads";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -106,88 +97,19 @@ function ThreadSwitcher({ currentThreadId, title, loading }: ThreadSwitcherProps
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const [threads, setThreads] = useState<Thread[] | null>(null);
+  const threads = useThreadsStore((s) => s.threads);
+  const threadsLoaded = useThreadsStore((s) => s.loaded);
   // Snapshot of "now" per open — group labels and row times read it.
   const [now, setNow] = useState(() => Date.now());
 
-  // Fresh list on every open — cheap, and always reflects titles/stars.
-  // Also re-pull on THREADS_REFRESH_EVENT (a delete undo) while open.
+  // Refresh on every open — cheap, and always reflects titles/stars. The
+  // shared store pushes later changes (renames, deletes) in automatically.
   useEffect(() => {
-    if (!open) return;
-    let live = true;
-    const load = () => {
-      listThreads()
-        .then((data) => live && setThreads(data.threads))
-        .catch(() => live && setThreads([]));
-    };
-    load();
-    window.addEventListener(THREADS_REFRESH_EVENT, load);
-    return () => {
-      live = false;
-      window.removeEventListener(THREADS_REFRESH_EVENT, load);
-    };
-  }, [open]);
-
-  // Keep an open popover live: new chats appear, renames land, deletes drop.
-  useEffect(() => {
-    if (!open) return;
-    const onCreated = (event: Event) => {
-      const detail = (event as CustomEvent<ThreadCreatedEventDetail>).detail;
-      if (!detail?.threadId) return;
-      const now = new Date().toISOString();
-      setThreads((prev) =>
-        prev && !prev.some((t) => t.id === detail.threadId)
-          ? [
-              {
-                id: detail.threadId,
-                title: detail.title?.trim() || "New thread",
-                starred: false,
-                first_answer_preview: null,
-                created_at: now,
-                updated_at: now,
-              },
-              ...prev,
-            ]
-          : prev,
-      );
-    };
-    const onRenamed = (event: Event) => {
-      const detail = (event as CustomEvent<ThreadRenamedEventDetail>).detail;
-      if (!detail?.threadId) return;
-      setThreads((prev) =>
-        prev?.map((t) =>
-          t.id === detail.threadId ? { ...t, title: detail.title } : t,
-        ) ?? prev,
-      );
-    };
-    const onDeleted = (event: Event) => {
-      const detail = (event as CustomEvent<ThreadDeletedEventDetail>).detail;
-      if (!detail?.threadId) return;
-      setThreads(
-        (prev) => prev?.filter((t) => t.id !== detail.threadId) ?? prev,
-      );
-    };
-    window.addEventListener(THREAD_CREATED_EVENT, onCreated as EventListener);
-    window.addEventListener(THREAD_RENAMED_EVENT, onRenamed as EventListener);
-    window.addEventListener(THREAD_DELETED_EVENT, onDeleted as EventListener);
-    return () => {
-      window.removeEventListener(
-        THREAD_CREATED_EVENT,
-        onCreated as EventListener,
-      );
-      window.removeEventListener(
-        THREAD_RENAMED_EVENT,
-        onRenamed as EventListener,
-      );
-      window.removeEventListener(
-        THREAD_DELETED_EVENT,
-        onDeleted as EventListener,
-      );
-    };
+    if (open) void useThreadsStore.getState().refresh();
   }, [open]);
 
   const groups = useMemo(() => {
-    if (!threads) return [];
+    if (!threadsLoaded) return [];
     const buckets = new Map<string, Thread[]>();
     for (const thread of threads) {
       const label = thread.starred
@@ -201,12 +123,12 @@ function ThreadSwitcher({ currentThreadId, title, loading }: ThreadSwitcherProps
     return order
       .filter((label) => buckets.has(label))
       .map((label) => ({ label, threads: buckets.get(label)! }));
-  }, [threads, now]);
+  }, [threads, threadsLoaded, now]);
 
   const goNewChat = () => {
     setOpen(false);
     if (pathname === "/") {
-      emitThreadEvent(NEW_THREAD_EVENT, {});
+      useChatStore.getState().reset();
     } else {
       router.push("/");
     }
@@ -264,7 +186,7 @@ function ThreadSwitcher({ currentThreadId, title, loading }: ThreadSwitcherProps
         <Command loop>
           <CommandInput placeholder="Chat history" autoFocus />
           <CommandList className="max-h-80">
-            {threads !== null && (
+            {threadsLoaded && (
               <CommandEmpty className="py-8 text-muted-foreground">
                 No conversations found.
               </CommandEmpty>
@@ -281,7 +203,7 @@ function ThreadSwitcher({ currentThreadId, title, loading }: ThreadSwitcherProps
                 </CommandItem>
               </CommandGroup>
             )}
-            {threads === null ? (
+            {!threadsLoaded ? (
               <div className="space-y-1 p-2">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <div
@@ -346,8 +268,6 @@ interface ChatHeaderProps {
   starred: boolean;
   messages: Message[];
   onToggleStar: () => void;
-  /** Called after the open thread is deleted — parent resets chat state. */
-  onDeleted: () => void;
 }
 
 export function ChatHeader({
@@ -357,12 +277,8 @@ export function ChatHeader({
   starred,
   messages,
   onToggleStar,
-  onDeleted,
 }: ChatHeaderProps) {
-  const threadActions = useThreadActions({
-    onRenamed: () => {},
-    onDeleted,
-  });
+  const threadActions = useThreadActions();
   const { openDelete: openDeleteDialog, openRename } = threadActions;
 
   const openDelete = useCallback(() => {

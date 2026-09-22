@@ -1,16 +1,11 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { deleteThread, updateThread } from "@/lib/api";
-import {
-  THREAD_DELETED_EVENT,
-  THREAD_RENAMED_EVENT,
-  THREADS_REFRESH_EVENT,
-  emitThreadEvent,
-  type ThreadDeletedEventDetail,
-  type ThreadRenamedEventDetail,
-} from "@/lib/thread-events";
+import { useChatStore } from "@/lib/stores/chat";
+import { useThreadsStore } from "@/lib/stores/threads";
 
 const THREAD_TITLE_CHAR_LIMIT = 100;
 /** How long the delete toast offers Undo before the DELETE request fires. */
@@ -21,13 +16,8 @@ export interface ThreadActionTarget {
   title: string;
 }
 
-interface UseThreadActionsOptions {
-  onRenamed: (threadId: string, nextTitle: string) => void;
-  onDeleted: (threadId: string) => void;
-}
-
-export function useThreadActions(options: UseThreadActionsOptions) {
-  const { onRenamed, onDeleted } = options;
+export function useThreadActions() {
+  const router = useRouter();
 
   const [renameTarget, setRenameTarget] = useState<ThreadActionTarget | null>(
     null,
@@ -56,17 +46,13 @@ export function useThreadActions(options: UseThreadActionsOptions) {
     setDeleteTarget(null);
   }, []);
 
-  const applyTitle = useCallback(
-    async (threadId: string, title: string) => {
-      await updateThread(threadId, { title });
-      emitThreadEvent<ThreadRenamedEventDetail>(THREAD_RENAMED_EVENT, {
-        threadId,
-        title,
-      });
-      onRenamed(threadId, title);
-    },
-    [onRenamed],
-  );
+  const applyTitle = useCallback(async (threadId: string, title: string) => {
+    await updateThread(threadId, { title });
+    // One write updates the list and (via the chat-store subscription) the
+    // open header — plus the view directly in case the row isn't listed.
+    useThreadsStore.getState().applyRenamed(threadId, title);
+    useChatStore.getState().applyTitle(threadId, title);
+  }, []);
 
   const restoreTitle = useCallback(
     async (threadId: string, title: string) => {
@@ -132,10 +118,11 @@ export function useThreadActions(options: UseThreadActionsOptions) {
 
     // Optimistic: remove the row everywhere now. The actual DELETE only fires
     // once the toast closes — Undo within the window cancels it entirely.
-    emitThreadEvent<ThreadDeletedEventDetail>(THREAD_DELETED_EVENT, {
-      threadId,
-    });
-    onDeleted(threadId);
+    useThreadsStore.getState().applyDeleted(threadId);
+    useChatStore.getState().markDeleted(threadId);
+    if (window.location.pathname === `/threads/${threadId}`) {
+      router.push("/");
+    }
     closeDelete();
     setIsDeleting(false);
 
@@ -149,7 +136,7 @@ export function useThreadActions(options: UseThreadActionsOptions) {
       void deleteThread(threadId).catch((err) => {
         console.error("Failed to delete thread:", err);
         toast.error("Couldn't delete the thread");
-        emitThreadEvent(THREADS_REFRESH_EVENT, {});
+        void useThreadsStore.getState().refresh();
       });
     };
     toast.success("Deleted thread", {
@@ -158,13 +145,13 @@ export function useThreadActions(options: UseThreadActionsOptions) {
         label: "Undo",
         onClick: () => {
           undone = true;
-          emitThreadEvent(THREADS_REFRESH_EVENT, {});
+          void useThreadsStore.getState().refresh();
         },
       },
       onAutoClose: commit,
       onDismiss: commit,
     });
-  }, [deleteTarget, isDeleting, onDeleted, closeDelete]);
+  }, [deleteTarget, isDeleting, closeDelete, router]);
 
   return {
     renameTarget,

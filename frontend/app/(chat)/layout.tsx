@@ -1,6 +1,7 @@
 "use client";
 
 import { AppSidebar } from "@/components/app-sidebar";
+import { DetachedRunNotifier } from "@/components/detached-run-notifier";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { useAuth } from "@/lib/auth";
 
@@ -21,6 +22,7 @@ export default function ChatLayout({
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>{children}</SidebarInset>
+      <DetachedRunNotifier />
     </SidebarProvider>
   );
 }
