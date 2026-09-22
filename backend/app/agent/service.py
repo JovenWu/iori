@@ -201,17 +201,52 @@ async def get_thread_messages(thread_id: str | uuid.UUID) -> list[dict]:
     config = {"configurable": {"thread_id": str(thread_id)}}
     state = await get_graph().aget_state(config)
     values = state.values if state else {}
-    out = []
-    for m in values.get("messages", []):
+    messages = values.get("messages", [])
+    entries: list[tuple[int, dict]] = []
+    # Tool calls accumulate across a turn's call rounds and fold into the
+    # assistant message that closes it — the live stream reports the same
+    # steps as `tool` events. Empty tool-call carriers never render.
+    pending_tools: list[dict] = []
+    for i, m in enumerate(messages):
         if isinstance(m, HumanMessage):
-            role = "user"
+            pending_tools = []  # new turn
+            if isinstance(m.content, str):
+                entries.append((i, {"role": "user", "content": m.content}))
         elif isinstance(m, AIMessage):
-            role = "assistant"
-        else:
-            continue
-        if isinstance(m.content, str):
-            out.append({"role": role, "content": m.content})
-    return out
+            pending_tools += [
+                {"name": tc["name"], "args": tc.get("args") or {}}
+                for tc in (m.tool_calls or [])
+                if tc.get("name")
+            ]
+            content = m.content if isinstance(m.content, str) else ""
+            if not content:
+                continue
+            entry: dict = {"role": "assistant", "content": content}
+            if pending_tools:
+                entry["tools"] = pending_tools
+                pending_tools = []
+            entries.append((i, entry))
+    # The run ended mid-tools (stopped/failed before an answer) — keep the
+    # steps on a content-less assistant entry rather than dropping them.
+    if pending_tools:
+        entries.append(
+            (len(messages),
+             {"role": "assistant", "content": "", "tools": pending_tools})
+        )
+    # Each chart belongs to the assistant answer that closed its turn — the
+    # first assistant message after the ToolMessage it was produced from.
+    for spec in values.get("charts", []):
+        anchor = spec.get("anchor", -1)
+        target = next(
+            (e for i, e in entries
+             if i > anchor and e["role"] == "assistant"),
+            None,
+        )
+        if target is not None:
+            target.setdefault("charts", []).append(
+                {k: v for k, v in spec.items() if k != "anchor"}
+            )
+    return [e for _, e in entries]
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +298,13 @@ async def run_turn(
                     for node_name, update in payload.items():
                         if not isinstance(update, dict):
                             continue
+                        if node_name == "tools":
+                            for spec in update.get("charts") or []:
+                                run.emit(
+                                    "chart",
+                                    {k: v for k, v in spec.items()
+                                     if k != "anchor"},
+                                )
                         for m in update.get("messages", []):
                             if node_name == "agent" and isinstance(m, AIMessage):
                                 if isinstance(m.content, str) and m.content:
@@ -270,7 +312,9 @@ async def run_turn(
                                 for tc in m.tool_calls or []:
                                     run.emit(
                                         "tool",
-                                        {"name": tc.get("name"), "status": "call"},
+                                        {"name": tc.get("name"),
+                                         "args": tc.get("args") or {},
+                                         "status": "call"},
                                     )
                             elif node_name == "tools":
                                 run.emit(

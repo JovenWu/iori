@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -30,9 +31,33 @@ class ThreadListOut(BaseModel):
     next_cursor: str | None = None
 
 
+class ChartSpecOut(BaseModel):
+    """Normalized chart spec — built by app/sectors/charts.py, `anchor`
+    stripped before it reaches the API."""
+    id: str
+    tool: str
+    view: str
+    kind: str
+    title: str
+    x: dict[str, Any]
+    series: list[dict[str, Any]]
+    data: list[dict[str, Any]]
+    fetched_at: str
+    format: str | None = None
+
+
+class ToolCallOut(BaseModel):
+    name: str
+    args: dict[str, Any] = {}
+
+
 class ChatMessageOut(BaseModel):
     role: str
     content: str
+    # Tool calls that ran in this turn (history reconstruction — the live
+    # stream reports them as `tool` events instead).
+    tools: list[ToolCallOut] = []
+    charts: list[ChartSpecOut] = []
 
 
 class ThreadDetailOut(ThreadOut):
