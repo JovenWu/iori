@@ -13,7 +13,7 @@ upstream call so malformed tickers never burn a paid 404.
 
 import json
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from langchain_core.tools import tool
@@ -101,12 +101,22 @@ def _parse_date(value: str | None) -> date | None:
 
 
 def _window(start: str | None, end: str | None, days: int) -> tuple[str, str] | str:
-    """Resolve (start, end) with defaults; clamps to a `days`-wide window."""
+    """Resolve (start, end) with defaults; clamps to a `days`-wide window.
+
+    `end` can't exceed the API's "today" — upstream validates it against
+    UTC, so between WIB midnight and 07:00 a WIB-today end is a future date
+    upstream (400). `start` must not be after `end` — checked locally so a
+    bad window never burns a request."""
+    today = datetime.now(timezone.utc).date()
     try:
-        end_d = _parse_date(end) or datetime.now(WIB).date()
+        end_d = _parse_date(end) or today
         start_d = _parse_date(start) or end_d - timedelta(days=days)
     except ValueError:
         return "invalid_date — use YYYY-MM-DD"
+    if end_d > today:
+        end_d = today
+    if start_d > end_d:
+        return "invalid_date — start must not be after end"
     if (end_d - start_d).days > days:
         start_d = end_d - timedelta(days=days)
     return str(start_d), str(end_d)
@@ -146,6 +156,7 @@ async def sectors_screen(
         "order_by": order_by,
         "desc": desc,
         "limit": max(1, min(limit, 50)),
+        "include_query_values": True,
     }
     credits = 1
     if q:
@@ -338,7 +349,7 @@ async def sectors_foreign_flow(
 ) -> str:
     """Daily net foreign-investor inflow (IDR) for one IDX ticker — positive
     means foreigners were net buyers. Pass IHSG for the market-wide series.
-    Max 90-day window, defaults to last 30 days. 1 credit.
+    Max 90-day window, defaults to the last 90 days. 1 credit.
 
     Args:
         symbol: IDX ticker or IHSG for market-wide flow.

@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -105,3 +106,23 @@ async def test_envelope_has_freshness_metadata(db, monkeypatch):
     out = _parse(await st.sectors_idx_market_summary.ainvoke({}))
     for key in ("fetched_at", "now_wib", "stale", "source", "status", "data"):
         assert key in out
+
+
+async def test_window_clamps_future_end_and_rejects_reversed(db, monkeypatch):
+    """Upstream 400s on end>today (UTC) or start>end — resolve locally."""
+    calls = []
+    monkeypatch.setattr(client, "get", _fake_get(calls=calls))
+
+    utc_today = datetime.now(timezone.utc).date()
+    out = _parse(await st.sectors_foreign_flow.ainvoke({
+        "symbol": "BBCA", "start": "2026-08-24",
+        "end": str(utc_today + timedelta(days=1)),
+    }))
+    assert out["status"] == 200
+    _, params = calls[0]
+    assert params["end"] == str(utc_today)  # clamped, not sent as-is
+
+    calls.clear()
+    out = _parse(await st.sectors_foreign_flow.ainvoke(
+        {"symbol": "BBCA", "start": "2026-09-20", "end": "2026-09-18"}))
+    assert "error" in out and calls == []  # rejected before upstream
