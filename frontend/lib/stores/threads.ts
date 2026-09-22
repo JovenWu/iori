@@ -52,7 +52,7 @@ interface ThreadsStore {
   finishRun: (threadId: string) => void;
 }
 
-function getTimestamp(value: string) {
+export function getTimestamp(value: string) {
   const time = new Date(value).getTime();
   return Number.isNaN(time) ? 0 : time;
 }

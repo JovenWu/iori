@@ -7,10 +7,12 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # Point the app at a dedicated test database before any app import touches
-# settings. Requires the docker-compose Postgres to be running.
-os.environ.setdefault("POSTGRES_DB", "sectors_agent_test")
-os.environ.setdefault("SECRET_KEY", "test-secret-key-test-secret-key")
-os.environ.setdefault("OPENROUTER_API_KEY", "test-key")
+# settings. Requires the docker-compose Postgres to be running. These are
+# hard assignments — an ambient POSTGRES_DB (e.g. from docker env_file) must
+# never steer the fixtures at the real database.
+os.environ["POSTGRES_DB"] = "sectors_agent_test"
+os.environ["SECRET_KEY"] = "test-secret-key-test-secret-key"
+os.environ["OPENROUTER_API_KEY"] = "test-key"
 
 import pytest
 import pytest_asyncio
@@ -39,6 +41,11 @@ _SYNC_ADMIN_URI = _SYNC_URI.rsplit("/", 1)[0] + "/postgres"
 @pytest.fixture(scope="session", autouse=True)
 def _prepare_database():
     """Create the test database (if missing) and all tables once per session."""
+    if not settings.POSTGRES_DB.endswith("_test"):
+        raise RuntimeError(
+            f"Refusing to create/drop tables on non-test database "
+            f"{settings.POSTGRES_DB!r}"
+        )
     admin = create_engine(_SYNC_ADMIN_URI, isolation_level="AUTOCOMMIT")
     with admin.connect() as conn:
         exists = conn.scalar(

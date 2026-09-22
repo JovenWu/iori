@@ -21,6 +21,11 @@ htmlcov/
 Thumbs.db
 .idea/
 .vscode/
+# Git Bash redirects (`-o nul`, `> nul`) bypass Windows' reserved-name check
+# and create a real `nul` file, which bind-mounts into containers as a
+# broken char device. `frontend/nul/` exists as a directory on purpose —
+# it blocks the file from being created. Do not delete it.
+nul
 
 # App artifacts
 uploads/

@@ -1,0 +1,14 @@
+# Frontend dev image — source is bind-mounted in compose, node_modules comes
+# from the image via an anonymous volume so Windows-built deps never leak in.
+FROM node:24-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]

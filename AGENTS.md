@@ -8,10 +8,9 @@
 
 ## Dev commands
 
-- Backend: `backend/run.py` with the project venv — `D:\Joven Kuliah\Hackhathon\Sectors-3.0\.venv\Scripts\python.exe run.py` from `backend/`. This entrypoint pins the Windows selector event loop (required by the psycopg checkpointer pool — plain `uvicorn` crashes on Windows). Serves on :8000.
-- Frontend: `npm run dev` in `frontend/` (Next.js, Turbopack) on :3000.
-- Backend tests: `D:\Joven Kuliah\Hackhathon\Sectors-3.0\.venv\Scripts\python.exe -m pytest backend/tests` — the system `python` lacks `typesafe_sdk`.
-- Frontend checks: `npx tsc --noEmit`, `npx eslint .`, `npm run build` in `frontend/` (`next lint` was removed in Next 16).
+- Full stack (Docker): `docker compose up -d` from the repo root — Postgres on :5433, backend on :8000 (runs `alembic upgrade head` then `uvicorn --reload`), frontend on :3000 (Next dev, webpack — Turbopack's watcher misses edits through Docker Desktop mounts). Rebuild after dependency changes: `docker compose up -d --build`.
+- Backend tests: `docker compose exec backend python -m pytest tests`.
+- Frontend checks: `docker compose exec frontend npx tsc --noEmit`, `docker compose exec frontend npx eslint .`, `docker compose exec frontend npm run build`.
 
 ## Conventions
 

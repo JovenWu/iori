@@ -26,12 +26,76 @@ import { ThreadActionsMenu } from "@/components/thread-actions-menu";
 import { ThreadActionDialogs } from "@/components/thread-action-dialogs";
 import { useThreadActions } from "@/hooks/use-thread-actions";
 import { useChatStore } from "@/lib/stores/chat";
-import { useThreadsStore } from "@/lib/stores/threads";
+import {
+  getTimestamp,
+  useThreadsStore,
+  type ListedThread,
+} from "@/lib/stores/threads";
 
 function threadTitle(thread: Thread): string {
   return (
     thread.title ??
     (markdownToPlainText(thread.first_answer_preview ?? "") || "Untitled")
+  );
+}
+
+function ThreadRow({
+  thread,
+  isActive,
+  actions,
+}: {
+  thread: ListedThread;
+  isActive: boolean;
+  actions: ReturnType<typeof useThreadActions>;
+}) {
+  const title = threadTitle(thread);
+  return (
+    <SidebarMenuItem className="[&:has([data-sidebar=menu-action]:hover)_[data-sidebar=menu-button]]:bg-transparent [&:has([data-sidebar=menu-action]:hover)_[data-sidebar=menu-button]]:text-sidebar-foreground">
+      <SidebarMenuButton
+        asChild
+        isActive={isActive}
+        tooltip={title}
+        // Let the title use the full width; only reserve room for the
+        // actions button (or the pending spinner) when it's actually
+        // visible, so titles aren't truncated early.
+        className={`h-7 py-1.5 group-hover/menu-item:pr-8 group-focus-within/menu-item:pr-8${
+          thread.isPending ? " pr-8" : ""
+        }`}
+      >
+        <Link
+          href={`/threads/${thread.id}`}
+          className="flex min-w-0 items-center"
+        >
+          <span className="min-w-0 flex-1 truncate">{title}</span>
+        </Link>
+      </SidebarMenuButton>
+
+      {thread.isPending ? (
+        <SidebarMenuAction
+          className="opacity-100 focus-visible:ring-0"
+          disabled
+          aria-hidden="true"
+        >
+          <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
+          <span className="sr-only">Thread loading</span>
+        </SidebarMenuAction>
+      ) : (
+        <ThreadActionsMenu
+          showIcons
+          onRename={() => actions.openRename({ threadId: thread.id, title })}
+          onDelete={() => actions.openDelete({ threadId: thread.id, title })}
+          trigger={
+            <SidebarMenuAction
+              className="opacity-0 focus-visible:ring-0 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100"
+              onClick={(e) => e.preventDefault()}
+            >
+              <MoreHorizontalIcon className="size-4" />
+              <span className="sr-only">Thread actions</span>
+            </SidebarMenuAction>
+          }
+        />
+      )}
+    </SidebarMenuItem>
   );
 }
 
@@ -50,7 +114,14 @@ export function SidebarThreads() {
 
   const threadActions = useThreadActions();
 
-  const recentThreads = threads.slice(0, RECENT_LIMIT);
+  // Starred threads pin to Favorites, oldest first so positions stay stable;
+  // they drop out of Recent entirely (mirrors the header switcher's buckets).
+  const starredThreads = threads
+    .filter((t) => t.starred)
+    .sort((a, b) => getTimestamp(a.updated_at) - getTimestamp(b.updated_at));
+  const recentThreads = threads
+    .filter((t) => !t.starred)
+    .slice(0, RECENT_LIMIT);
   // More rows may exist server-side even when only page one is loaded.
   const shouldShowViewAll = hasMore || threads.length > RECENT_LIMIT;
 
@@ -101,12 +172,6 @@ export function SidebarThreads() {
         </SidebarMenu>
 
         <div className="flex min-h-0 flex-1 flex-col gap-2 group-data-[collapsible=icon]:hidden">
-          <div className="px-2 pt-1">
-            <span className="text-xs font-medium text-muted-foreground/70">
-              Recent
-            </span>
-          </div>
-
           {!loaded ? (
             <div className="space-y-2 overflow-y-auto px-2 py-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -124,91 +189,60 @@ export function SidebarThreads() {
               </p>
             </div>
           ) : (
-            <SidebarMenu className="min-h-0 flex-1 gap-0.5 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-              {recentThreads.map((thread) => {
-                const isActive = pathname === `/threads/${thread.id}`;
-                const title = threadTitle(thread);
-                return (
-                  <SidebarMenuItem
+            <>
+              {starredThreads.length > 0 && (
+                <>
+                  <div className="px-2 pt-1">
+                    <span className="text-xs font-medium text-muted-foreground/70">
+                      Favorites
+                    </span>
+                  </div>
+                  {/* Bounded so a long favorites list can't starve Recent. */}
+                  <SidebarMenu className="max-h-[35%] gap-0.5 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                    {starredThreads.map((thread) => (
+                      <ThreadRow
+                        key={thread.id}
+                        thread={thread}
+                        isActive={pathname === `/threads/${thread.id}`}
+                        actions={threadActions}
+                      />
+                    ))}
+                  </SidebarMenu>
+                </>
+              )}
+
+              <div className="px-2 pt-1">
+                <span className="text-xs font-medium text-muted-foreground/70">
+                  Recent
+                </span>
+              </div>
+              <SidebarMenu className="min-h-0 flex-1 gap-0.5 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                {recentThreads.map((thread) => (
+                  <ThreadRow
                     key={thread.id}
-                    className="[&:has([data-sidebar=menu-action]:hover)_[data-sidebar=menu-button]]:bg-transparent [&:has([data-sidebar=menu-action]:hover)_[data-sidebar=menu-button]]:text-sidebar-foreground"
-                  >
+                    thread={thread}
+                    isActive={pathname === `/threads/${thread.id}`}
+                    actions={threadActions}
+                  />
+                ))}
+                {shouldShowViewAll ? (
+                  <SidebarMenuItem>
                     <SidebarMenuButton
                       asChild
-                      isActive={isActive}
-                      tooltip={title}
-                      // Let the title use the full width; only reserve room for
-                      // the actions button (or the pending spinner) when it's
-                      // actually visible, so titles aren't truncated early.
-                      className={`h-7 py-1.5 group-hover/menu-item:pr-8 group-focus-within/menu-item:pr-8${
-                        thread.isPending ? " pr-8" : ""
-                      }`}
+                      className="h-7 text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-muted-foreground active:bg-transparent active:text-foreground"
                     >
                       <Link
-                        href={`/threads/${thread.id}`}
-                        className="flex min-w-0 items-center"
+                        href="/history"
+                        className="inline-flex items-center gap-1"
                       >
-                        <span className="min-w-0 flex-1 truncate">
-                          {title}
-                        </span>
+                        <span>View all</span>
+                        <ChevronRightIcon className="size-3.5" />
                       </Link>
                     </SidebarMenuButton>
-
-                    {thread.isPending ? (
-                      <SidebarMenuAction
-                        className="opacity-100 focus-visible:ring-0"
-                        disabled
-                        aria-hidden="true"
-                      >
-                        <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
-                        <span className="sr-only">Thread loading</span>
-                      </SidebarMenuAction>
-                    ) : (
-                      <ThreadActionsMenu
-                        showIcons
-                        onRename={() =>
-                          threadActions.openRename({
-                            threadId: thread.id,
-                            title,
-                          })
-                        }
-                        onDelete={() =>
-                          threadActions.openDelete({
-                            threadId: thread.id,
-                            title,
-                          })
-                        }
-                        trigger={
-                          <SidebarMenuAction
-                            className="opacity-0 focus-visible:ring-0 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100"
-                            onClick={(e) => e.preventDefault()}
-                          >
-                            <MoreHorizontalIcon className="size-4" />
-                            <span className="sr-only">Thread actions</span>
-                          </SidebarMenuAction>
-                        }
-                      />
-                    )}
                   </SidebarMenuItem>
-                );
-              })}
-              {shouldShowViewAll ? (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    className="h-7 text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-muted-foreground active:bg-transparent active:text-foreground"
-                  >
-                    <Link
-                      href="/history"
-                      className="inline-flex items-center gap-1"
-                    >
-                      <span>View all</span>
-                      <ChevronRightIcon className="size-3.5" />
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ) : null}
-            </SidebarMenu>
+                ) : null}
+              </SidebarMenu>
+            </>
           )}
         </div>
       </SidebarGroupContent>

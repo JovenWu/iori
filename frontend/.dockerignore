@@ -1,0 +1,7 @@
+node_modules
+.next
+.env.local
+.env.*.local
+# Windows reserved device name — can appear as a phantom NTFS entry from
+# Git Bash redirects (`-o nul`); crashes bundlers that glob the project.
+nul
