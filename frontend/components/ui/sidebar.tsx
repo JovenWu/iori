@@ -26,10 +26,17 @@ import { PanelLeftIcon } from "lucide-react"
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
-const SIDEBAR_WIDTH = "16rem"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
+const SIDEBAR_WIDTH_DEFAULT = 256
+const SIDEBAR_WIDTH_MIN = 176
+const SIDEBAR_WIDTH_MAX = 384
+const SIDEBAR_WIDTH_STORAGE_KEY = "sidebar_width"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
+
+function clampSidebarWidth(width: number) {
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, width))
+}
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
@@ -39,6 +46,10 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
   toggleSidebar: () => void
+  sidebarWidth: number
+  setSidebarWidth: (width: number) => void
+  isResizing: boolean
+  setIsResizing: (resizing: boolean) => void
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -112,6 +123,22 @@ function SidebarProvider({
   // This makes it easier to style the sidebar with Tailwind classes.
   const state = open ? "expanded" : "collapsed"
 
+  // Resizable width in px; persisted so a reload keeps the user's size.
+  const [sidebarWidth, setSidebarWidthState] = React.useState(() => {
+    if (typeof window === "undefined") return SIDEBAR_WIDTH_DEFAULT
+    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
+    return Number.isNaN(stored) || stored <= 0
+      ? SIDEBAR_WIDTH_DEFAULT
+      : clampSidebarWidth(stored)
+  })
+  const [isResizing, setIsResizing] = React.useState(false)
+
+  const setSidebarWidth = React.useCallback((width: number) => {
+    const clamped = clampSidebarWidth(width)
+    setSidebarWidthState(clamped)
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clamped))
+  }, [])
+
   const contextValue = React.useMemo<SidebarContextProps>(
     () => ({
       state,
@@ -121,17 +148,34 @@ function SidebarProvider({
       openMobile,
       setOpenMobile,
       toggleSidebar,
+      sidebarWidth,
+      setSidebarWidth,
+      isResizing,
+      setIsResizing,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+    [
+      state,
+      open,
+      setOpen,
+      isMobile,
+      openMobile,
+      setOpenMobile,
+      toggleSidebar,
+      sidebarWidth,
+      setSidebarWidth,
+      isResizing,
+    ]
   )
 
   return (
     <SidebarContext.Provider value={contextValue}>
       <div
         data-slot="sidebar-wrapper"
+        // --sidebar-width may differ between SSR default and stored value.
+        suppressHydrationWarning
         style={
           {
-            "--sidebar-width": SIDEBAR_WIDTH,
+            "--sidebar-width": `${sidebarWidth}px`,
             "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
             ...style,
           } as React.CSSProperties
@@ -161,7 +205,7 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const { isMobile, state, openMobile, setOpenMobile, isResizing } = useSidebar()
 
   if (collapsible === "none") {
     return (
@@ -186,7 +230,7 @@ function Sidebar({
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+          className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden data-[side=left]:rounded-r-2xl data-[side=right]:rounded-l-2xl"
           style={
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
@@ -222,7 +266,8 @@ function Sidebar({
           "group-data-[side=right]:rotate-180",
           variant === "floating" || variant === "inset"
             ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]"
-            : "group-data-[collapsible=icon]:w-(--sidebar-width-icon)"
+            : "group-data-[collapsible=icon]:w-(--sidebar-width-icon)",
+          isResizing && "transition-none"
         )}
       />
       <div
@@ -234,6 +279,7 @@ function Sidebar({
           variant === "floating" || variant === "inset"
             ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
             : "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l",
+          isResizing && "transition-none",
           className
         )}
         {...props}
@@ -277,7 +323,16 @@ function SidebarTrigger({
 }
 
 function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
-  const { toggleSidebar } = useSidebar()
+  const { toggleSidebar, sidebarWidth, setSidebarWidth, setIsResizing } =
+    useSidebar()
+  // Distinguishes a click (toggle) from a drag (resize), and a double-click
+  // (reset to default width) from two single clicks.
+  const dragRef = React.useRef<{
+    startX: number
+    startWidth: number
+    dragging: boolean
+  } | null>(null)
+  const clickTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   return (
     <button
@@ -285,8 +340,58 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
       data-slot="sidebar-rail"
       aria-label="Toggle Sidebar"
       tabIndex={-1}
-      onClick={toggleSidebar}
       title="Toggle Sidebar"
+      onPointerDown={(e) => {
+        dragRef.current = {
+          startX: e.clientX,
+          startWidth: sidebarWidth,
+          dragging: false,
+        }
+        e.currentTarget.setPointerCapture(e.pointerId)
+      }}
+      onPointerMove={(e) => {
+        const drag = dragRef.current
+        if (!drag) return
+        if (!drag.dragging && Math.abs(e.clientX - drag.startX) <= 3) return
+        if (!drag.dragging) {
+          drag.dragging = true
+          setIsResizing(true)
+          document.body.style.cursor = "col-resize"
+          document.body.style.userSelect = "none"
+        }
+        const side =
+          e.currentTarget.closest<HTMLElement>("[data-side]")?.dataset.side ??
+          "left"
+        const delta = (e.clientX - drag.startX) * (side === "right" ? -1 : 1)
+        setSidebarWidth(drag.startWidth + delta)
+      }}
+      onPointerUp={() => {
+        const drag = dragRef.current
+        dragRef.current = null
+        setIsResizing(false)
+        document.body.style.cursor = ""
+        document.body.style.userSelect = ""
+        if (!drag || drag.dragging) return
+        // Hold the toggle briefly — a second click inside the window means
+        // double-click, which resets width instead of toggling twice.
+        if (clickTimerRef.current) {
+          clearTimeout(clickTimerRef.current)
+          clickTimerRef.current = null
+          setSidebarWidth(SIDEBAR_WIDTH_DEFAULT)
+        } else {
+          clickTimerRef.current = setTimeout(() => {
+            clickTimerRef.current = null
+            toggleSidebar()
+          }, 250)
+        }
+      }}
+      onPointerCancel={() => {
+        dragRef.current = null
+        setIsResizing(false)
+        document.body.style.cursor = ""
+        document.body.style.userSelect = ""
+      }}
+      // Double-click is handled in onPointerUp so it doesn't fire two toggles.
       className={cn(
         "absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2",
         "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
