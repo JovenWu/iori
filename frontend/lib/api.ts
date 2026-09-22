@@ -2,6 +2,8 @@
 
 /* API client — JWT in localStorage, refresh-on-401, SSE stream parser. */
 
+import type { ChartSpec } from "@/lib/charts";
+
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const BASE = `${API}/api/v1`;
 
@@ -26,7 +28,14 @@ export type Thread = {
   updated_at: string;
 };
 
-export type ChatMessage = { role: string; content: string };
+export type ChatMessage = {
+  role: string;
+  content: string;
+  /** Tool calls that ran in this turn — history reconstruction of the
+   * live `tool` stream events. */
+  tools?: { name: string; args?: Record<string, unknown> }[];
+  charts?: ChartSpec[];
+};
 
 export type ThreadDetail = Thread & { messages: ChatMessage[] };
 
@@ -39,7 +48,7 @@ export type Memory = {
 
 export type StreamEvent = {
   seq: number;
-  type: "started" | "token" | "tool" | "done" | "stopped" | "error";
+  type: "started" | "token" | "tool" | "chart" | "done" | "stopped" | "error";
   data: unknown;
 };
 

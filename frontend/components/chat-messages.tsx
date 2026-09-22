@@ -5,7 +5,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { AgentStatus, type ToolActivity } from "@/components/agent-status";
+import { ChartBlock } from "@/components/charts/chart-block";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { ChartSpec } from "@/lib/charts";
 import { cn } from "@/lib/utils";
 
 export type Message = {
@@ -23,6 +25,8 @@ export type Message = {
   };
   /** The prompt that produced this assistant message — used for retry. */
   prompt?: string;
+  /** Chart specs emitted by tool results (live + history). */
+  charts?: ChartSpec[];
 };
 
 const markdownClasses =
@@ -77,6 +81,11 @@ function AssistantMessage({
   msg: Message;
   onRetry?: (messageId: string) => void;
 }) {
+  // Charts are emitted as soon as their tool finishes but belong at the
+  // END of the answer — hold them back until the run settles (done,
+  // stopped, or history where `run` is absent/settled), then cascade them
+  // in under the final text.
+  const showCharts = !!msg.charts?.length && !msg.run?.active;
   return (
     <div className="min-w-0">
       {msg.run && (
@@ -97,6 +106,22 @@ function AssistantMessage({
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {msg.content}
           </ReactMarkdown>
+        </div>
+      )}
+      {showCharts && (
+        <div className="mt-3 flex flex-col gap-3">
+          {msg.charts!.map((c, i) => (
+            <div
+              key={c.id}
+              className="animate-in fade-in-0 slide-in-from-bottom-2 duration-500"
+              style={{
+                animationDelay: `${i * 90}ms`,
+                animationFillMode: "backwards",
+              }}
+            >
+              <ChartBlock spec={c} />
+            </div>
+          ))}
         </div>
       )}
     </div>

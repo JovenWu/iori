@@ -5,19 +5,40 @@ import { toast } from "sonner";
 
 import type { ToolActivity } from "@/components/agent-status";
 import type { Message } from "@/components/chat-messages";
-import { getThread, stopThread, streamChat, updateThread } from "@/lib/api";
-import { verbFor } from "@/lib/tool-labels";
+import type { ChartSpec } from "@/lib/charts";
+import {
+  getThread,
+  stopThread,
+  streamChat,
+  updateThread,
+  type ChatMessage,
+} from "@/lib/api";
+import { detailFor, verbFor } from "@/lib/tool-labels";
 import { useThreadsStore } from "@/lib/stores/threads";
 
 let msgSeq = 0;
 const nextId = (prefix: string) => `${prefix}-${Date.now()}-${++msgSeq}`;
 
-/** Flat history — server messages map straight onto the UI model. */
-function toMessages(messages: { role: string; content: string }[]): Message[] {
+/** Flat history — server messages map straight onto the UI model. Tool
+ * names come back as a settled run so the work line + steps graph render
+ * exactly like they did live. */
+function toMessages(messages: ChatMessage[]): Message[] {
   return messages.map((m, i) => ({
     id: `h-${i}`,
     role: m.role === "user" ? "user" : "assistant",
     content: m.content,
+    charts: m.charts,
+    run: m.tools?.length
+      ? {
+          tools: m.tools.map((t) => ({
+            tool: t.name,
+            label: verbFor(t.name),
+            detail: detailFor(t.args),
+            status: "done" as const,
+          })),
+          active: false,
+        }
+      : undefined,
   }));
 }
 
@@ -54,6 +75,9 @@ interface ActiveRun {
   wasNew: boolean;
   detached: boolean;
   announced: boolean;
+  /** The assistant message this run streams into — lets stop() settle it
+   * even when the abort races the server's `stopped` event. */
+  assistantId: string;
 }
 let activeRun: ActiveRun | null = null;
 /** Runs that outlived their view — kept so logout can abort them all. */
@@ -157,6 +181,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       wasNew: get().threadId === null,
       detached: false,
       announced: false,
+      assistantId,
     };
     activeRun = run;
 
@@ -217,9 +242,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             patch((m) => {
               const tools = [...(m.run?.tools ?? [])];
               if (data.status === "call") {
+                const args = (data as { args?: Record<string, unknown> }).args;
                 tools.push({
                   tool: data.name,
                   label: verbFor(data.name),
+                  detail: detailFor(args),
                   status: "running",
                 });
               } else {
@@ -232,6 +259,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               }
               return { run: { ...m.run!, tools } };
             });
+            break;
+          case "chart":
+            patch((m) => ({
+              charts: [...(m.charts ?? []), ev.data as ChartSpec],
+            }));
             break;
           case "done":
             run.threadId = data.thread_id;
@@ -375,6 +407,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set({ running: true });
       patchMessage(messageId, () => ({
         content: "",
+        charts: [], // the new run re-derives its own
         run: { tools: [], active: true, runStartedAt: null },
       }));
       void runStream(msg.prompt, messageId);
@@ -383,7 +416,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     stop: () => {
       const tid = get().threadId;
       if (tid) stopThread(tid).catch(() => {});
-      activeRun?.controller.abort();
+      const run = activeRun;
+      if (run) {
+        // The abort can race the server's `stopped` event — settle now so
+        // status/charts aren't stuck mid-flight if the event never lands.
+        patchMessage(run.assistantId, (m) => ({
+          run: { ...settleRun(m, "skipped"), stopped: true },
+        }));
+        run.controller.abort();
+      }
     },
 
     toggleStar: () => {
