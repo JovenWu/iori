@@ -31,6 +31,19 @@ async def test_jev_choice_routes_to_sectors(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_jev_choice_routes_to_deep_research(monkeypatch):
+    async def fake_ask(state, questions):
+        return SimpleNamespace(
+            choices={"route": SimpleNamespace(choice="deep_research")}
+        )
+
+    monkeypatch.setattr(router, "jev_ask", fake_ask)
+    assert await router.router(_state("compare BBCA vs BMRI deeply"), {}) == {
+        "workflow": "deep_research"
+    }
+
+
+@pytest.mark.asyncio
 async def test_invalid_or_missing_choice_falls_back(monkeypatch):
     async def bad_choice(state, questions):
         return SimpleNamespace(

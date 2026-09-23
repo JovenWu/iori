@@ -23,9 +23,9 @@ async def test_graph_turn_produces_ai_message(monkeypatch):
     monkeypatch.setattr(
         context, "recall_memories", AsyncMock(return_value="")
     )
-    monkeypatch.setattr(
-        nodes,
-        "agent_llm",
+    monkeypatch.setitem(
+        nodes._LLM_BY_WORKFLOW,
+        "general",
         SimpleNamespace(
             ainvoke=AsyncMock(return_value=AIMessage(content="Halo! Ada yang bisa dibantu?"))
         ),
@@ -65,9 +65,9 @@ async def test_graph_tool_call_executes_sectors_tool(
         return 200, {"sectors": [{"banks": "Financials"}]}
 
     monkeypatch.setattr(client, "get", fake_get)
-    monkeypatch.setattr(
-        nodes,
-        "agent_llm",
+    monkeypatch.setitem(
+        nodes._LLM_BY_WORKFLOW,
+        "general",
         SimpleNamespace(
             ainvoke=AsyncMock(
                 side_effect=[

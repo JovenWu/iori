@@ -19,9 +19,15 @@ logger = logging.getLogger(__name__)
 WORKFLOWS: dict[str, str] = {
     "general": "General conversation, greetings, explanations, and non-market questions.",
     "sectors_data": (
-        "IDX market data questions — prices, screening, company or subsector "
-        "reports, rankings, broker activity, foreign flow, filings, "
-        "suspensions, corporate actions, listing performance, market news."
+        "IDX market data questions answerable with a few lookups — prices, "
+        "screening, company or subsector reports, rankings, broker activity, "
+        "foreign flow, filings, suspensions, corporate actions, listing "
+        "performance, market news."
+    ),
+    "deep_research": (
+        "Multi-step research — 'analyze X', 'compare A vs B', deep dives and "
+        "due-diligence questions that need several data pulls before an "
+        "answer can be synthesized."
     ),
 }
 

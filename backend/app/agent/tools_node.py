@@ -14,13 +14,18 @@ from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.prebuilt import ToolNode
 
+from app.agent.compute import compute
 from app.agent.state import ChatState
 from app.sectors.charts import judge_and_extract
 from app.sectors.tools import TOOLS
 
 logger = logging.getLogger(__name__)
 
-_tool_node = ToolNode(TOOLS)
+# Everything the agent can call — sectors tools plus local helpers. `nodes`
+# decides which subset a workflow sees; the executor must accept all of them.
+AGENT_TOOLS = [*TOOLS, compute]
+
+_tool_node = ToolNode(AGENT_TOOLS)
 
 
 def _last_user_query(messages: Sequence[BaseMessage]) -> str:

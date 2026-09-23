@@ -45,9 +45,11 @@ def fake_llm(monkeypatch):
     async def _fake_ainvoke(messages, config=None):
         return AIMessage(content="Halo! Ada yang bisa dibantu?")
 
-    monkeypatch.setattr(
-        nodes, "agent_llm", SimpleNamespace(ainvoke=_fake_ainvoke)
-    )
+    fake = SimpleNamespace(ainvoke=_fake_ainvoke)
+    # Both seams: `general` routes use the tool-less runnable, everything else
+    # falls back to agent_llm.
+    monkeypatch.setattr(nodes, "agent_llm", fake)
+    monkeypatch.setitem(nodes._LLM_BY_WORKFLOW, "general", fake)
 
 
 async def _login(client) -> dict:
@@ -143,7 +145,9 @@ async def test_stop_signals_run(client, agent_service, monkeypatch):
         await asyncio.sleep(60)
         return AIMessage(content="never")
 
-    monkeypatch.setattr(nodes, "agent_llm", SimpleNamespace(ainvoke=slow_llm))
+    slow = SimpleNamespace(ainvoke=slow_llm)
+    monkeypatch.setattr(nodes, "agent_llm", slow)
+    monkeypatch.setitem(nodes._LLM_BY_WORKFLOW, "general", slow)
 
     headers = await _login(client)
 
@@ -203,7 +207,9 @@ async def test_stream_emits_tool_events(client, agent_service, fake_llm, monkeyp
     async def two_step_llm(messages, config=None):
         return next(responses)
 
-    monkeypatch.setattr(nodes, "agent_llm", SimpleNamespace(ainvoke=two_step_llm))
+    two_step = SimpleNamespace(ainvoke=two_step_llm)
+    monkeypatch.setattr(nodes, "agent_llm", two_step)
+    monkeypatch.setitem(nodes._LLM_BY_WORKFLOW, "general", two_step)
 
     headers = await _login(client)
     async with client.stream(

@@ -9,6 +9,7 @@ never affected.
 
 import json
 import logging
+import re
 import uuid
 from typing import Any, Callable
 
@@ -59,8 +60,73 @@ def _spec(
 
 # -- extractors ---------------------------------------------------------------
 
+_X_DATE = {"key": "date", "label": "Date", "type": "time"}
+
+
+def _is_symbol_map(data: Any) -> bool:
+    """Multi-symbol fan-out shape: {SYM: {status, data, ...}} — every value a
+    sub-envelope dict. Single-symbol bodies always carry scalar/list fields."""
+    return (
+        isinstance(data, dict)
+        and bool(data)
+        and all(isinstance(v, dict) for v in data.values())
+    )
+
+
+def _pivot_by_date(data: dict, field: str) -> tuple[list[dict], list[dict]]:
+    """{SYM: sub-envelope} → (series, wide rows {date, SYM: v}) so one chart
+    carries one series per ticker on a shared date axis."""
+    series: list[dict] = []
+    by_date: dict[str, dict] = {}
+    for sym, env in data.items():
+        rows = _rows(env.get("data") if isinstance(env, dict) else None)
+        pts = [
+            (r["date"], r[field])
+            for r in rows
+            if r.get("date") and r.get(field) is not None
+        ]
+        if not pts:
+            continue
+        key = _sym(sym)
+        series.append({"key": key, "label": key})
+        for d, v in pts:
+            by_date.setdefault(d, {"date": d})[key] = v
+    return series, [by_date[d] for d in sorted(by_date)]
+
+
+def _price_lines(data: dict, fetched_at: str) -> dict | None:
+    """Multi-symbol closes → indexed (base-100) lines so different price
+    scales compare fairly — the canonical comparison chart."""
+    series, pts = _pivot_by_date(data, "close")
+    if len(series) < 2 or len(pts) < 2:
+        return None
+    base = {
+        s["key"]: next((r[s["key"]] for r in pts if r.get(s["key"])), None)
+        for s in series
+    }
+    for row in pts:
+        for s in series:
+            k = s["key"]
+            row[k] = round(row[k] / base[k] * 100, 2) if row.get(k) and base[k] else None
+    label = " vs ".join(s["key"] for s in series)
+    return _spec("price_volume", "line",
+                 f"Indexed performance — {label} (base 100)",
+                 _X_DATE, series, pts, fetched_at, "number")
+
+
+def _flow_lines(data: dict, fetched_at: str) -> dict | None:
+    """Multi-symbol foreign flow → one signed line per ticker, shared axis."""
+    series, pts = _pivot_by_date(data, "net_foreign_inflow")
+    if len(series) < 2 or len(pts) < 2:
+        return None
+    label = " vs ".join(s["key"] for s in series)
+    return _spec("netflow", "line", f"Net foreign flow — {label}",
+                 _X_DATE, series, pts, fetched_at, "idr")
+
 
 def _price_volume(data: Any, fetched_at: str) -> dict | None:
+    if _is_symbol_map(data):
+        return _price_lines(data, fetched_at)
     rows = _rows(data)
     pts = [
         {"date": r["date"], "close": r["close"], "volume": r.get("volume")}
@@ -75,7 +141,7 @@ def _price_volume(data: Any, fetched_at: str) -> dict | None:
         "price_volume",
         "price_volume",
         f"{sym} daily close",
-        {"key": "date", "label": "Date", "type": "time"},
+        _X_DATE,
         [
             {"key": "close", "label": "Close"},
             {"key": "volume", "label": "Volume"},
@@ -97,13 +163,15 @@ def _mcap_area(data: Any, fetched_at: str) -> dict | None:
     pts.sort(key=lambda r: r["date"])
     return _spec(
         "mcap_area", "area", "IDX total market cap",
-        {"key": "date", "label": "Date", "type": "time"},
+        _X_DATE,
         [{"key": "mcap", "label": "Total market cap"}],
         pts, fetched_at, "idr",
     )
 
 
 def _netflow(data: Any, fetched_at: str) -> dict | None:
+    if _is_symbol_map(data):
+        return _flow_lines(data, fetched_at)
     pts = [
         {"date": r["date"], "net": r["net_foreign_inflow"]}
         for r in _rows(data)
@@ -115,13 +183,47 @@ def _netflow(data: Any, fetched_at: str) -> dict | None:
     sym = _sym(data.get("symbol")) if isinstance(data, dict) else ""
     return _spec(
         "netflow", "signed_area", f"{sym} net foreign flow",
-        {"key": "date", "label": "Date", "type": "time"},
+        _X_DATE,
         [{"key": "net", "label": "Net foreign inflow"}],
         pts, fetched_at, "idr",
     )
 
 
+def _quarterly_lines(data: dict, fetched_at: str) -> dict | None:
+    """Multi-symbol quarterly fan-out → revenue + earnings line per ticker on
+    one shared quarter axis (e.g. 'BBCA revenue', 'BMRI earnings')."""
+    fields = ("revenue", "earnings")
+    series: list[dict] = []
+    by_date: dict[str, dict] = {}
+    for sym, env in data.items():
+        rows = _rows(env.get("data") if isinstance(env, dict) else None)
+        rows = [
+            r for r in rows
+            if r.get("date") and any(_num(r.get(f)) for f in fields)
+        ]
+        if not rows:
+            continue
+        s = _sym(sym)
+        for f in fields:
+            series.append({"key": f"{s} {f}", "label": f"{s} {f}"})
+        for r in rows:
+            row = by_date.setdefault(r["date"], {"date": r["date"]})
+            for f in fields:
+                if _num(r.get(f)):
+                    row[f"{s} {f}"] = r[f]
+    pts = [by_date[d] for d in sorted(by_date)]
+    series = [s for s in series if any(s["key"] in row for row in pts)]
+    if len(series) < 2 or len(pts) < 2:
+        return None
+    label = " vs ".join(_sym(s) for s in data)
+    return _spec("quarterly_grouped", "line",
+                 f"Quarterly revenue vs earnings — {label}",
+                 _X_DATE, series, pts, fetched_at, "idr")
+
+
 def _quarterly_grouped(data: Any, fetched_at: str) -> dict | None:
+    if _is_symbol_map(data):
+        return _quarterly_lines(data, fetched_at)
     rows = _rows(data)
     pts = [
         {"date": r["date"], "revenue": r.get("revenue"),
@@ -243,7 +345,7 @@ def _traded_trend(data: Any, fetched_at: str) -> dict | None:
         pts.append(row)
     return _spec(
         "traded_trend", "line", "Most-traded volume by day",
-        {"key": "date", "label": "Date", "type": "time"},
+        _X_DATE,
         [{"key": _sym(s), "label": _sym(s)} for s in top],
         pts, fetched_at, "number",
     )
@@ -433,6 +535,166 @@ def _subsector_mcap_trend(data: Any, fetched_at: str) -> dict | None:
     )
 
 
+def _index_line(data: Any, fetched_at: str) -> dict | None:
+    rows = _rows(data)
+    pts = [
+        {"date": r["date"], "price": r["price"]}
+        for r in rows
+        if r.get("date") and r.get("price") is not None
+    ]
+    if len(pts) < 2:
+        return None
+    pts.sort(key=lambda r: r["date"])
+    code = str(rows[0].get("index_code") or "").upper()
+    return _spec(
+        "index_line", "line", f"{code} index level",
+        _X_DATE,
+        [{"key": "price", "label": "Level"}],
+        pts, fetched_at, "number",
+    )
+
+
+# -- generic fallback ---------------------------------------------------------
+# Shape-driven extraction for any sectors_* result: rows → line/bars, symbol
+# maps → per-ticker lines, flat numeric dicts → bars. JEV still gates whether a
+# chart helps; this only shapes the spec deterministically.
+
+_DATEISH = re.compile(r"^\d{4}([-/.]\d{1,2}){1,2}")
+_TIME_KEYS = ("date", "datetime", "timestamp", "period", "quarter", "year", "month")
+_CAT_KEYS = ("symbol", "broker_code", "name", "window", "group", "category",
+             "sector", "sub_sector", "index_code")
+# Field names that usually carry "the" metric — beats alphabetical ties.
+_PREFERRED = ("net", "inflow", "close", "price", "market_cap", "mcap",
+              "revenue", "earnings", "value", "volume", "total", "yield",
+              "share", "change", "pct")
+
+
+def _num(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _field_rank(name: str, coverage: int) -> tuple[int, int, str]:
+    n = name.lower()
+    pref = next((i for i, k in enumerate(_PREFERRED) if k in n), len(_PREFERRED))
+    return (pref, -coverage, name)
+
+
+def _numeric_fields(rows: list[dict], exclude: str) -> list[str]:
+    counts: dict[str, int] = {}
+    for r in rows:
+        for k, v in r.items():
+            if k != exclude and _num(v):
+                counts[k] = counts.get(k, 0) + 1
+    return sorted(counts, key=lambda k: _field_rank(k, counts[k]))
+
+
+def _pick_x(rows: list[dict]) -> str | None:
+    keys = {k for r in rows for k in r}
+    for k in _TIME_KEYS:
+        if k in keys:
+            return k
+    for k in sorted(keys):
+        vals = [r[k] for r in rows if r.get(k) is not None][:10]
+        if vals and sum(bool(_DATEISH.match(str(v))) for v in vals) / len(vals) >= 0.6:
+            return k
+    for k in _CAT_KEYS:
+        if k in keys:
+            return k
+    return next(
+        (k for k in sorted(keys) if any(isinstance(r.get(k), str) for r in rows)),
+        None,
+    )
+
+
+def _fmt_guess(field: str, vals: list) -> str:
+    f = field.lower()
+    if any(k in f for k in ("pct", "percent", "share", "yield", "change",
+                            "margin", "growth", "ratio", "float")):
+        mx = max((abs(v) for v in vals if _num(v)), default=0)
+        return "percent" if mx <= 1.5 else "percent_raw"
+    if any(k in f for k in ("idr", "inflow", "cap", "revenue", "earnings",
+                            "turnover", "amount", "val")):
+        return "idr"
+    return "number"
+
+
+def _generic_map(data: dict, fetched_at: str) -> dict | None:
+    """{SYM: sub-envelope} → per-ticker lines on the best-covered metric."""
+    counts: dict[str, int] = {}
+    for env in data.values():
+        for r in _rows(env.get("data") if isinstance(env, dict) else None):
+            for k, v in r.items():
+                if _num(v):
+                    counts[k] = counts.get(k, 0) + 1
+    if not counts:
+        return None
+    field = min(counts, key=lambda k: _field_rank(k, counts[k]))
+    series, pts = _pivot_by_date(data, field)
+    if len(series) < 2 or len(pts) < 2:
+        return None
+    vals = [r[s["key"]] for r in pts for s in series if _num(r.get(s["key"]))]
+    label = field.replace("_", " ")
+    title = f"{label} — {' vs '.join(s['key'] for s in series)}"
+    return _spec("generic", "line", title, _X_DATE, series, pts, fetched_at,
+                 _fmt_guess(field, vals))
+
+
+def _generic_rows(rows: list[dict], fetched_at: str) -> dict | None:
+    x = _pick_x(rows)
+    if x is None:
+        return None
+    fields = _numeric_fields(rows, exclude=x)[:4]
+    if not fields:
+        return None
+    pts = [
+        {x: str(r[x]), **{f: r.get(f) for f in fields}}
+        for r in rows if r.get(x) is not None
+    ]
+    if len(pts) < 2:
+        return None
+    pts.sort(key=lambda r: r[x])
+    temporal = x in _TIME_KEYS or bool(_DATEISH.match(pts[0][x]))
+    if temporal:
+        kind = "line"
+    elif len(fields) > 1:
+        kind = "grouped_bar"
+        pts = pts[:25]
+    else:
+        f0 = fields[0]
+        neg = any(_num(r[f0]) and r[f0] < 0 for r in pts)
+        kind = "diverging_bar" if neg else "bar"
+        pts = sorted(pts, key=lambda r: abs(r[f0] or 0), reverse=True)[:25]
+    series = [{"key": f, "label": f.replace("_", " ")} for f in fields]
+    title = f"{', '.join(s['label'] for s in series)} by {x.replace('_', ' ')}"
+    return _spec(
+        "generic", kind, title,
+        {"key": x, "label": x.replace("_", " "),
+         "type": "time" if temporal else "category"},
+        series, pts, fetched_at,
+        _fmt_guess(fields[0], [r.get(fields[0]) for r in pts]),
+    )
+
+
+def _generic(data: Any, fetched_at: str) -> dict | None:
+    """Best-effort spec for shapes no named view claims."""
+    if _is_symbol_map(data):
+        return _generic_map(data, fetched_at)
+    rows = _rows(data)
+    if len(rows) >= 2:
+        return _generic_rows(rows, fetched_at)
+    if isinstance(data, dict):
+        pts = [{"k": str(k), "v": v} for k, v in data.items() if _num(v)]
+        if len(pts) < 2:
+            return None
+        pts = sorted(pts, key=lambda r: abs(r["v"]), reverse=True)[:25]
+        kind = "diverging_bar" if any(r["v"] < 0 for r in pts) else "bar"
+        return _spec("generic", kind, "Breakdown",
+                     {"key": "k", "label": "", "type": "category"},
+                     [{"key": "v", "label": "Value"}], pts, fetched_at,
+                     _fmt_guess("", [r["v"] for r in pts]))
+    return None
+
+
 def _subsector_top_mcap(data: Any, fetched_at: str) -> dict | None:
     comps = data.get("companies") if isinstance(data, dict) else None
     top = ((comps or {}).get("top_companies") or {}).get("top_mcap") or {}
@@ -455,7 +717,7 @@ def _subsector_top_mcap(data: Any, fetched_at: str) -> dict | None:
 VIEWS: dict[str, dict[str, dict[str, Any]]] = {
     "sectors_daily_prices": {
         "price_volume": {
-            "desc": "Daily close-price line with volume bars over the window.",
+            "desc": "Daily close line + volume bars; multi-symbol calls become indexed (base-100) comparison lines.",
             "extract": _price_volume,
         },
     },
@@ -467,13 +729,13 @@ VIEWS: dict[str, dict[str, dict[str, Any]]] = {
     },
     "sectors_foreign_flow": {
         "netflow": {
-            "desc": "Daily net foreign inflow — signed area, positive = foreign buying.",
+            "desc": "Daily net foreign inflow — signed area for one ticker, one line per ticker for comparisons.",
             "extract": _netflow,
         },
     },
     "sectors_quarterly_financials": {
         "quarterly_grouped": {
-            "desc": "Revenue vs earnings grouped bars per quarter.",
+            "desc": "Revenue vs earnings grouped bars per quarter; multi-symbol calls become revenue+earnings lines per ticker.",
             "extract": _quarterly_grouped,
         },
     },
@@ -535,6 +797,12 @@ VIEWS: dict[str, dict[str, dict[str, Any]]] = {
             "extract": _valuation_trend,
         },
     },
+    "sectors_index_daily": {
+        "index_line": {
+            "desc": "Index closing level over the window — benchmark line.",
+            "extract": _index_line,
+        },
+    },
     "sectors_subsector_report": {
         "subsector_mcap_trend": {
             "desc": "Subsector total market cap by quarter — area trend.",
@@ -571,10 +839,18 @@ async def judge_and_extract(
     tool_name: str, content: Any, question: str
 ) -> dict | None:
     """Tool result → chart spec or None. Never raises, never spends JEV on
-    tools without registered views or on broken envelopes."""
-    views = VIEWS.get(tool_name)
-    if not views:
+    non-sectors tools or broken envelopes. Every sectors_* tool gets a
+    "generic" option alongside its named views, so results with no dedicated
+    view can still chart when a trend/comparison adds clarity."""
+    if not tool_name.startswith("sectors_"):
         return None
+    views = {
+        **VIEWS.get(tool_name, {}),
+        "generic": {
+            "desc": "Fallback — reshape the result into a trend, comparison, or breakdown chart when no named view fits.",
+            "extract": _generic,
+        },
+    }
     env = content
     if isinstance(content, str):
         try:
@@ -583,7 +859,7 @@ async def judge_and_extract(
             return None
     if not isinstance(env, dict):
         return None
-    if env.get("status") != 200 or env.get("truncated"):
+    if env.get("status") != 200:
         return None
     data = env.get("data")
     if not isinstance(data, (list, dict)):
@@ -625,11 +901,18 @@ async def judge_and_extract(
     view = answer.choice if answer else None
     if not view or view not in views:
         return None
+    spec = None
     try:
         spec = views[view]["extract"](data, env.get("fetched_at", ""))
     except Exception:
         logger.exception("chart extract failed: %s/%s", tool_name, view)
-        return None
+    if spec is None and view != "generic":
+        try:
+            spec = _generic(data, env.get("fetched_at", ""))
+        except Exception:
+            logger.exception("chart extract failed: %s/generic", tool_name)
+        if spec is not None:
+            view = "generic"
     if spec is not None:
         spec["tool"] = tool_name
         spec["view"] = view

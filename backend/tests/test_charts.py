@@ -64,12 +64,86 @@ async def test_judge_builds_price_volume_spec(monkeypatch):
     assert spec["fetched_at"] == "2026-09-21T17:00:00"
 
 
-async def test_unregistered_tool_never_calls_jev(monkeypatch):
+async def test_non_sectors_tool_never_calls_jev(monkeypatch):
     async def boom(state, questions):
-        raise AssertionError("jev_ask must not run for unchartable tools")
+        raise AssertionError("jev_ask must not run for non-sectors tools")
 
     monkeypatch.setattr(charts, "jev_ask", boom)
-    assert await charts.judge_and_extract("sectors_news", _envelope({}), "x") is None
+    assert await charts.judge_and_extract(
+        "compute", _envelope({"result": 42}), "x"
+    ) is None
+
+
+GENERIC_ROWS = [
+    {"date": "2026-09-19", "free_float": 0.41},
+    {"date": "2026-09-20", "free_float": 0.42},
+    {"date": "2026-09-21", "free_float": 0.44},
+]
+
+
+async def test_generic_view_charts_unregistered_tool(monkeypatch):
+    """A sectors_* tool with no registered view still charts when JEV picks
+    generic — percent-shaped fields get percent formatting."""
+    monkeypatch.setattr(charts, "jev_ask", _view("generic"))
+    spec = await charts.judge_and_extract(
+        "sectors_free_float", _envelope(GENERIC_ROWS), "free float trend"
+    )
+    assert spec is not None
+    assert spec["kind"] == "line" and spec["format"] == "percent"
+    assert spec["series"][0]["key"] == "free_float"
+
+
+async def test_generic_rows_without_numbers_returns_none(monkeypatch):
+    monkeypatch.setattr(charts, "jev_ask", _view("generic"))
+    news = [{"title": "BBCA buyback", "published": "2026-09-21"},
+            {"title": "BBRI dividend", "published": "2026-09-22"}]
+    assert await charts.judge_and_extract(
+        "sectors_news", _envelope(news), "news terbaru"
+    ) is None
+
+
+async def test_generic_symbol_map_picks_preferred_field(monkeypatch):
+    monkeypatch.setattr(charts, "jev_ask", _view("generic"))
+    spec = await charts.judge_and_extract(
+        "sectors_broker_activity", _envelope(FLOW_MULTI), "bandingkan flow"
+    )
+    assert spec is not None and spec["kind"] == "line"
+    assert {s["key"] for s in spec["series"]} == {"BBCA", "BBRI"}
+    assert spec["data"][0]["BBCA"] == 1.4e11  # net_foreign_inflow won
+
+
+async def test_generic_scalar_dict_bars(monkeypatch):
+    monkeypatch.setattr(charts, "jev_ask", _view("generic"))
+    spec = await charts.judge_and_extract(
+        "sectors_index_universe",
+        _envelope({"IDX30": 512.3, "LQ45": 890.1, "KOMPAS100": 1200.5}),
+        "index board",
+    )
+    assert spec is not None and spec["kind"] == "bar"
+
+
+async def test_named_view_failure_falls_back_to_generic(monkeypatch):
+    """JEV picks a named view that can't shape the data → generic rescues."""
+    monkeypatch.setattr(charts, "jev_ask", _view("quarterly_grouped"))
+    rows = [{"date": "2026-06-30", "eps": 120},
+            {"date": "2026-09-30", "eps": 150}]
+    spec = await charts.judge_and_extract(
+        "sectors_quarterly_financials", _envelope(rows), "eps trend"
+    )
+    assert spec is not None
+    assert spec["kind"] == "line" and spec["view"] == "generic"
+
+
+async def test_truncated_structured_envelope_still_charts(monkeypatch):
+    """Row-trimmed data (truncated=True but still a list/dict) is chartable —
+    only string-destroyed data should skip."""
+    monkeypatch.setattr(charts, "jev_ask", _view("netflow"))
+    spec = await charts.judge_and_extract(
+        "sectors_foreign_flow",
+        _envelope(FOREIGN_FLOW, truncated=True),
+        "foreign flow BBCA",
+    )
+    assert spec is not None and spec["kind"] == "signed_area"
 
 
 async def test_bad_envelopes_skip(monkeypatch):
@@ -83,8 +157,9 @@ async def test_bad_envelopes_skip(monkeypatch):
     assert await charts.judge_and_extract(
         "sectors_daily_prices", "not json", "x"
     ) is None
+    # Row-trimmed envelopes still chart — only string-destroyed data skips.
     assert await charts.judge_and_extract(
-        "sectors_daily_prices", _envelope(DAILY, truncated=True), "x"
+        "sectors_daily_prices", _envelope("…cut off", truncated=True), "x"
     ) is None
     assert await charts.judge_and_extract(
         "sectors_daily_prices", _envelope({"error": "nf"}, status=404), "x"
@@ -172,6 +247,65 @@ async def test_netflow_signed_area(monkeypatch):
     assert [p["net"] for p in spec["data"]] == [1.4e11, -2.0e10, 3.0e10]
 
 
+FOREIGN_FLOW_B = {
+    "symbol": "BBRI.JK", "start": "2026-09-15", "end": "2026-09-21",
+    "data": [
+        {"date": "2026-09-17", "net_foreign_inflow": -5.0e10},
+        {"date": "2026-09-18", "net_foreign_inflow": 2.0e10},
+        {"date": "2026-09-21", "net_foreign_inflow": 8.0e10},
+    ],
+}
+
+# Multi-symbol fan-out shape: {SYM: sub-envelope}.
+FLOW_MULTI = {
+    "BBCA": {"status": 200, "source": "upstream", "stale": False,
+             "fetched_at": "2026-09-21T17:00:00", "data": FOREIGN_FLOW},
+    "BBRI": {"status": 200, "source": "upstream", "stale": False,
+             "fetched_at": "2026-09-21T17:00:00", "data": FOREIGN_FLOW_B},
+}
+
+DAILY_B = [
+    {"symbol": "BBRI.JK", "date": "2026-09-17", "close": 4000,
+     "volume": 50000000},
+    {"symbol": "BBRI.JK", "date": "2026-09-18", "close": 4200,
+     "volume": 55000000},
+    {"symbol": "BBRI.JK", "date": "2026-09-21", "close": 3900,
+     "volume": 60000000},
+]
+
+PRICE_MULTI = {
+    "BBCA": {"status": 200, "source": "upstream", "stale": False,
+             "fetched_at": "2026-09-21T17:00:00", "data": DAILY},
+    "BBRI": {"status": 200, "source": "upstream", "stale": False,
+             "fetched_at": "2026-09-21T17:00:00", "data": DAILY_B},
+}
+
+
+async def test_netflow_multi_symbol_lines(monkeypatch):
+    monkeypatch.setattr(charts, "jev_ask", _view("netflow"))
+    spec = await charts.judge_and_extract(
+        "sectors_foreign_flow", _envelope(FLOW_MULTI), "arus asing BBCA vs BBRI"
+    )
+    assert spec["kind"] == "line" and spec["format"] == "idr"
+    assert {s["key"] for s in spec["series"]} == {"BBCA", "BBRI"}
+    first = spec["data"][0]
+    assert first["date"] == "2026-09-17"
+    assert first["BBCA"] == 1.4e11 and first["BBRI"] == -5.0e10
+
+
+async def test_price_volume_multi_symbol_indexed_lines(monkeypatch):
+    monkeypatch.setattr(charts, "jev_ask", _view("price_volume"))
+    spec = await charts.judge_and_extract(
+        "sectors_daily_prices", _envelope(PRICE_MULTI), "harga BBCA vs BBRI"
+    )
+    assert spec["kind"] == "line"
+    assert {s["key"] for s in spec["series"]} == {"BBCA", "BBRI"}
+    first, last = spec["data"][0], spec["data"][-1]
+    assert first["BBCA"] == 100.0 and first["BBRI"] == 100.0  # rebased
+    assert last["BBRI"] == pytest.approx(97.5)  # 3900/4000
+    assert last["BBCA"] == pytest.approx(6300 / 6200 * 100, abs=0.01)
+
+
 async def test_quarterly_grouped_bars(monkeypatch):
     monkeypatch.setattr(charts, "jev_ask", _view("quarterly_grouped"))
     spec = await charts.judge_and_extract(
@@ -179,6 +313,37 @@ async def test_quarterly_grouped_bars(monkeypatch):
     )
     assert spec["kind"] == "grouped_bar"
     assert {s["key"] for s in spec["series"]} == {"revenue", "earnings"}
+
+
+QUARTERLY_B = [
+    {"symbol": "BBRI.JK", "date": "2026-03-31", "revenue": 3.5e13,
+     "earnings": 1.8e13},
+    {"symbol": "BBRI.JK", "date": "2026-06-30", "revenue": 3.7e13,
+     "earnings": 1.9e13},
+]
+
+Q_MULTI = {
+    "BBCA": {"status": 200, "source": "upstream", "stale": False,
+             "fetched_at": "2026-09-23T14:48:00", "data": QUARTERLY},
+    "BBRI": {"status": 200, "source": "upstream", "stale": False,
+             "fetched_at": "2026-09-23T14:48:00", "data": QUARTERLY_B},
+}
+
+
+async def test_quarterly_multi_symbol_lines(monkeypatch):
+    """Multi-symbol quarterly fan-out → revenue+earnings line per ticker on
+    one shared quarter axis, instead of one chart per bank."""
+    monkeypatch.setattr(charts, "jev_ask", _view("quarterly_grouped"))
+    spec = await charts.judge_and_extract(
+        "sectors_quarterly_financials", _envelope(Q_MULTI), "bandingkan BBCA BBRI"
+    )
+    assert spec["kind"] == "line" and spec["format"] == "idr"
+    keys = {s["key"] for s in spec["series"]}
+    assert keys == {"BBCA revenue", "BBCA earnings",
+                    "BBRI revenue", "BBRI earnings"}
+    first = spec["data"][0]
+    assert first["date"] == "2026-03-31"
+    assert first["BBCA revenue"] == 2.8e13 and first["BBRI revenue"] == 3.5e13
 
 
 async def test_listing_perf_bars(monkeypatch):
