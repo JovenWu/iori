@@ -226,6 +226,49 @@ async def test_stream_emits_tool_events(client, agent_service, fake_llm, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_block_content_history_includes_reasoning(
+    client, agent_service, fake_llm, monkeypatch
+):
+    """Reasoning models answer with typed content blocks — history must
+    serialize the text blocks as `content` and summaries as `reasoning`."""
+    block_reply = AIMessage(
+        content=[
+            {
+                "type": "reasoning",
+                "id": "rs_x",
+                "summary": [
+                    {"type": "summary_text", "text": "User greeted me — "},
+                    {"type": "summary_text", "text": "respond warmly."},
+                ],
+            },
+            {"type": "text", "text": "Halo! Senang bertemu."},
+        ]
+    )
+
+    async def block_llm(messages, config=None):
+        return block_reply
+
+    fake = SimpleNamespace(ainvoke=block_llm)
+    monkeypatch.setattr(nodes, "agent_llm", fake)
+    monkeypatch.setitem(nodes._LLM_BY_WORKFLOW, "general", fake)
+
+    headers = await _login(client)
+    async with client.stream(
+        "POST", STREAM_URL, json={"message": "halo"}, headers=headers
+    ) as resp:
+        events = await _collect(resp)
+    assert events[-1]["type"] == "done"
+    assert events[-1]["data"]["answer"] == "Halo! Senang bertemu."
+    thread_id = events[-1]["data"]["thread_id"]
+
+    detail = await client.get(f"/api/v1/threads/{thread_id}", headers=headers)
+    msgs = detail.json()["messages"]
+    assistant = next(m for m in msgs if m["role"] == "assistant")
+    assert assistant["content"] == "Halo! Senang bertemu."
+    assert assistant["reasoning"] == "User greeted me — respond warmly."
+
+
+@pytest.mark.asyncio
 async def test_thread_title_falls_back_to_first_message(
     client, agent_service, fake_llm
 ):

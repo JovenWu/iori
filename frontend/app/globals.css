@@ -447,6 +447,40 @@
   font-size: 11px;
   color: var(--spark-muted);
 }
+/* "+n more" step overflow — same rail node, clickable to reveal all rows */
+.step-more {
+  cursor: pointer;
+  border-radius: 4px;
+}
+.step-more:hover .fold {
+  color: var(--ink-muted);
+}
+.step-more:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+/* Model thinking — reasoning summary inside the work panel, below steps */
+.thinking {
+  margin-top: 6px;
+  padding-left: 19px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--spark-muted);
+}
+.thinking p {
+  margin: 0.35em 0;
+}
+.thinking p:first-child {
+  margin-top: 0;
+}
+.thinking p:last-child {
+  margin-bottom: 0;
+}
+.thinking strong {
+  color: var(--ink-muted);
+  font-weight: 600;
+}
 
 /* Retry link — mono underline affordance above a failed run's status line */
 .run-retry {

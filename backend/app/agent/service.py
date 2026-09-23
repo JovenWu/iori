@@ -20,6 +20,7 @@ from sqlalchemy import select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.graph import build_graph
+from app.agent.messages import message_reasoning, message_text
 from app.agent.runs import AgentRun, registry
 from app.core.config import settings
 from app.core.llm import get_chat_model
@@ -207,9 +208,11 @@ async def get_thread_messages(thread_id: str | uuid.UUID) -> list[dict]:
     # assistant message that closes it — the live stream reports the same
     # steps as `tool` events. Empty tool-call carriers never render.
     pending_tools: list[dict] = []
+    pending_reasoning: list[str] = []
     for i, m in enumerate(messages):
         if isinstance(m, HumanMessage):
             pending_tools = []  # new turn
+            pending_reasoning = []
             if isinstance(m.content, str):
                 entries.append((i, {"role": "user", "content": m.content}))
         elif isinstance(m, AIMessage):
@@ -218,10 +221,15 @@ async def get_thread_messages(thread_id: str | uuid.UUID) -> list[dict]:
                 for tc in (m.tool_calls or [])
                 if tc.get("name")
             ]
-            content = m.content if isinstance(m.content, str) else ""
+            if r := message_reasoning(m.content):
+                pending_reasoning.append(r)
+            content = message_text(m.content)
             if not content:
                 continue
             entry: dict = {"role": "assistant", "content": content}
+            if pending_reasoning:
+                entry["reasoning"] = "\n\n".join(pending_reasoning)
+                pending_reasoning = []
             if pending_tools:
                 entry["tools"] = pending_tools
                 pending_tools = []
@@ -254,17 +262,6 @@ async def get_thread_messages(thread_id: str | uuid.UUID) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def _chunk_text(msg: AIMessageChunk) -> str:
-    """Plain text from a streamed chunk — string content or text blocks."""
-    if isinstance(msg.content, str):
-        return msg.content
-    return "".join(
-        b.get("text", "")
-        for b in msg.content
-        if isinstance(b, dict) and b.get("type") == "text"
-    )
-
-
 async def run_turn(
     run: AgentRun, user_id: int, thread_id: str, user_msg: str
 ) -> None:
@@ -290,8 +287,9 @@ async def run_turn(
                         meta.get("langgraph_node") == "agent"
                         and isinstance(msg, AIMessageChunk)
                     ):
-                        chunk = _chunk_text(msg)
-                        if chunk:
+                        if r := message_reasoning(msg.content):
+                            run.emit("reasoning", r)
+                        if chunk := message_text(msg.content):
                             accumulated += chunk
                             run.emit("token", chunk)
                 elif kind == "updates":
@@ -307,8 +305,8 @@ async def run_turn(
                                 )
                         for m in update.get("messages", []):
                             if node_name == "agent" and isinstance(m, AIMessage):
-                                if isinstance(m.content, str) and m.content:
-                                    final_answer = m.content
+                                if text := message_text(m.content):
+                                    final_answer = text
                                 for tc in m.tool_calls or []:
                                     run.emit(
                                         "tool",
@@ -404,10 +402,14 @@ async def _post_turn(user_id: int, thread_id: str) -> None:
                 "",
             )
             ai_msg = next(
-                (m.content for m in reversed(messages) if isinstance(m, AIMessage)),
+                (
+                    message_text(m.content)
+                    for m in reversed(messages)
+                    if isinstance(m, AIMessage)
+                ),
                 "",
             )
-            if not isinstance(user_msg, str) or not isinstance(ai_msg, str):
+            if not isinstance(user_msg, str):
                 return
             summary = values.get("summary", "") or ""
             first_user_msg = next(

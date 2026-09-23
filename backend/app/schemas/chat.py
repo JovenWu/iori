@@ -54,6 +54,9 @@ class ToolCallOut(BaseModel):
 class ChatMessageOut(BaseModel):
     role: str
     content: str
+    # Reasoning summary the model produced for this turn, if any — the live
+    # stream reports it as `reasoning` events.
+    reasoning: str | None = None
     # Tool calls that ran in this turn (history reconstruction — the live
     # stream reports them as `tool` events instead).
     tools: list[ToolCallOut] = []

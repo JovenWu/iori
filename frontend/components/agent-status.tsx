@@ -5,6 +5,8 @@
    dispatched, so the side count reads "step n", never "n/total". */
 
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 
 export type ToolStatus = "running" | "done" | "error" | "skipped";
@@ -25,7 +27,7 @@ let agentGraphOpen = false;
 
 const SPARK_DWELL_MS = 400; // a step holds ≥400ms before settling — faster is flicker
 const SPARK_SETTLE_MS = 900; // reply lands first, the line folds a beat later
-const SPARK_MAX_ROWS = 8; // beyond this, fold the oldest rows in the open graph
+const SPARK_VISIBLE = 4; // steps beyond the first 4 hide behind a "+n more" row
 
 type StepState = "active" | "done" | "fail" | "skipped";
 
@@ -173,6 +175,7 @@ export function AgentStatus({
   stopped,
   durationMs,
   runStartedAt,
+  reasoning,
   onRetry,
 }: {
   tools: ToolActivity[];
@@ -187,9 +190,13 @@ export function AgentStatus({
   /** Server-anchored epoch ms when this run started — keeps the live timer
    * honest across remounts (thread switches, resume). */
   runStartedAt?: number | null;
+  /** The model's reasoning summary — renders inside the work panel,
+   * under the step list. */
+  reasoning?: string;
   onRetry?: () => void;
 }) {
   const [open, setOpen] = useState(agentGraphOpen);
+  const [showAllSteps, setShowAllSteps] = useState(false);
 
   // Dwell-held steps: index → the running verb to keep showing. A step that
   // settles <400ms after appearing stays visually active until the floor
@@ -290,8 +297,17 @@ export function AgentStatus({
   const phase: "running" | "fail" | "done" =
     active || !settled ? "running" : runFailed ? "fail" : "done";
 
-  // A clean step-less run leaves nothing behind once it settles.
-  if (phase !== "running" && nSteps === 0 && !runFailed && !stopped) return null;
+  const hasReasoning = !!reasoning;
+
+  // A clean step-less, thought-less run leaves nothing behind once it settles.
+  if (
+    phase !== "running" &&
+    nSteps === 0 &&
+    !runFailed &&
+    !stopped &&
+    !hasReasoning
+  )
+    return null;
 
   const secs =
     durationMs != null ? ` · ${(Math.max(0, durationMs) / 1000).toFixed(1)}s` : "";
@@ -306,14 +322,15 @@ export function AgentStatus({
         ? `Failed${lastFailIdx >= 0 ? ` at step ${lastFailIdx + 1}` : ""}${secs}`
         : stopped
           ? `Stopped${nSteps ? ` · ${nSteps} step${nSteps === 1 ? "" : "s"}` : ""}${secs}`
-          : `Completed ${nSteps} step${nSteps === 1 ? "" : "s"}${secs}`;
+          : nSteps > 0
+            ? `Completed ${nSteps} step${nSteps === 1 ? "" : "s"}${secs}`
+            : `Completed${secs}`;
 
-  // Long runs: fold the oldest rows, keep the latest three (incl. the live one).
-  const visibleSteps =
-    steps.length > SPARK_MAX_ROWS ? steps.slice(-3) : steps;
-  const foldedCount = steps.length - visibleSteps.length;
+  // Past the first SPARK_VISIBLE rows, the rest sit behind a "+n more" row.
+  const visibleSteps = showAllSteps ? steps : steps.slice(0, SPARK_VISIBLE);
+  const hiddenCount = steps.length - visibleSteps.length;
 
-  const expandable = nSteps > 0;
+  const expandable = nSteps > 0 || hasReasoning;
   const toggle = () =>
     setOpen((o) => {
       agentGraphOpen = !o;
@@ -374,36 +391,65 @@ export function AgentStatus({
             <LiveElapsed since={runStartedAt} />
             {nSteps > 0 ? ` · step ${nSteps}` : ""}
           </span>
-        ) : nSteps > 0 ? (
+        ) : expandable ? (
           <span className="status-side">
-            {open ? "Hide work" : "Show work"}
+            {nSteps > 0
+              ? open
+                ? "Hide work"
+                : "Show work"
+              : open
+                ? "Hide thinking"
+                : "Show thinking"}
           </span>
         ) : null}
-        {nSteps > 0 ? (
+        {expandable ? (
           <svg className="caret" viewBox="0 0 10 6" aria-hidden="true">
             <path d="M1 1l4 4 4-4" />
           </svg>
         ) : null}
       </div>
-      {open && nSteps > 0 ? (
-        <ol className="steps">
-          {foldedCount > 0 ? (
-            <li className="step" data-state="skipped">
-              <span className="rail">
-                <span className="node ghost" />
-              </span>
-              <span className="step-main">
-                <span className="fold">
-                  {foldedCount} earlier step{foldedCount === 1 ? "" : "s"}
-                </span>
-              </span>
-              <span className="step-time" />
-            </li>
+      {open && expandable ? (
+        <>
+          {nSteps > 0 ? (
+            <ol className="steps">
+              {visibleSteps.map((step) => (
+                <StepRow key={step.key} step={step} />
+              ))}
+              {hiddenCount > 0 ? (
+                <li
+                  className="step step-more"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Show ${hiddenCount} more steps`}
+                  onClick={() => setShowAllSteps(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setShowAllSteps(true);
+                    }
+                  }}
+                >
+                  <span className="rail">
+                    <span className="node ghost" />
+                  </span>
+                  <span className="step-main">
+                    <span className="fold">
+                      +{hiddenCount} more
+                    </span>
+                  </span>
+                  <span className="step-time" />
+                </li>
+              ) : null}
+            </ol>
           ) : null}
-          {visibleSteps.map((step) => (
-            <StepRow key={step.key} step={step} />
-          ))}
-        </ol>
+          {hasReasoning ? (
+            <div className="thinking">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {reasoning}
+              </ReactMarkdown>
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );

@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     OPENROUTER_APP_NAME: str = "sectors-agent"
     MODEL_NAME: str = "openai/gpt-5.6-luna"
     CLASSIFIER_MODEL: str = "openai/gpt-5.6-luna"
+    # Reasoning effort for the agent model. Reasoning-capable models then
+    # return a summary of their thinking, streamed to clients as `reasoning`
+    # events. Empty disables — the model uses plain chat completions.
+    MODEL_REASONING_EFFORT: str = "high"
     EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
     EMBEDDING_TIMEOUT: float = 30.0
     EMBEDDING_MAX_RETRIES: int = 5

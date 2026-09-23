@@ -19,6 +19,7 @@ import tiktoken
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
+from app.agent.messages import message_reasoning, message_text
 from app.agent.state import ChatState
 from app.core.config import settings
 from app.core.jev import Noul, jev_ask
@@ -47,8 +48,13 @@ def count_tokens(text: str) -> int:
 def messages_tokens(messages: Sequence[BaseMessage]) -> int:
     total = 0
     for m in messages:
-        content = m.content if isinstance(m.content, str) else str(m.content)
-        total += count_tokens(content) + _MSG_OVERHEAD
+        # Reasoning blocks replay upstream with the message — their summary
+        # approximates the token share (the encrypted blob itself is opaque).
+        total += (
+            count_tokens(message_text(m.content))
+            + count_tokens(message_reasoning(m.content))
+            + _MSG_OVERHEAD
+        )
     return total
 
 
@@ -106,9 +112,10 @@ async def _context_gates(query: str, summary: str) -> tuple[bool, bool]:
 
 async def _summarize(existing: str, messages: Sequence[BaseMessage]) -> str:
     transcript = "\n".join(
-        f"{'User' if isinstance(m, HumanMessage) else 'Assistant'}: {m.content}"
+        f"{'User' if isinstance(m, HumanMessage) else 'Assistant'}: {text}"
         for m in messages
-        if isinstance(m, (HumanMessage, AIMessage)) and isinstance(m.content, str)
+        if isinstance(m, (HumanMessage, AIMessage))
+        and (text := message_text(m.content))
     )
     if not transcript.strip():
         return existing

@@ -25,6 +25,8 @@ export type Message = {
   };
   /** The prompt that produced this assistant message — used for retry. */
   prompt?: string;
+  /** Model's reasoning summary — streamed live, persisted with history. */
+  reasoning?: string;
   /** Chart specs emitted by tool results (live + history). */
   charts?: ChartSpec[];
 };
@@ -88,19 +90,20 @@ function AssistantMessage({
   const showCharts = !!msg.charts?.length && !msg.run?.active;
   return (
     <div className="min-w-0">
-      {msg.run && (
+      {msg.run || msg.reasoning ? (
         <AgentStatus
-          tools={msg.run.tools}
-          active={msg.run.active}
-          failed={msg.run.failed}
-          stopped={msg.run.stopped}
-          durationMs={msg.run.durationMs}
-          runStartedAt={msg.run.runStartedAt}
+          tools={msg.run?.tools ?? []}
+          active={!!msg.run?.active}
+          failed={msg.run?.failed}
+          stopped={msg.run?.stopped}
+          durationMs={msg.run?.durationMs}
+          runStartedAt={msg.run?.runStartedAt}
+          reasoning={msg.reasoning}
           onRetry={
-            msg.run.failed && onRetry ? () => onRetry(msg.id) : undefined
+            msg.run?.failed && onRetry ? () => onRetry(msg.id) : undefined
           }
         />
-      )}
+      ) : null}
       {msg.content && (
         <div className={markdownClasses}>
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -165,12 +168,14 @@ export function ChatMessages({
   }, [lastId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // While streaming, keep the tail in view only if the user hasn't scrolled up.
-  const lastContent = messages[messages.length - 1]?.content;
+  const lastMsg = messages[messages.length - 1];
+  const lastContent = lastMsg?.content;
+  const lastReasoning = lastMsg?.reasoning;
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !pinnedRef.current) return;
     container.scrollTop = container.scrollHeight;
-  }, [lastContent]);
+  }, [lastContent, lastReasoning]);
 
   return (
     <div

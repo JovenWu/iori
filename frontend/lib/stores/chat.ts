@@ -27,6 +27,7 @@ function toMessages(messages: ChatMessage[]): Message[] {
     id: `h-${i}`,
     role: m.role === "user" ? "user" : "assistant",
     content: m.content,
+    reasoning: m.reasoning,
     charts: m.charts,
     run: m.tools?.length
       ? {
@@ -235,6 +236,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             announce(data.thread_id, true);
             break;
           }
+          case "reasoning":
+            patch((m) => ({
+              reasoning: (m.reasoning ?? "") + (ev.data as string),
+            }));
+            break;
           case "token":
             patch((m) => ({ content: m.content + (ev.data as string) }));
             break;
@@ -407,7 +413,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set({ running: true });
       patchMessage(messageId, () => ({
         content: "",
-        charts: [], // the new run re-derives its own
+        reasoning: "", // the new run re-derives its own
+        charts: [],
         run: { tools: [], active: true, runStartedAt: null },
       }));
       void runStream(msg.prompt, messageId);

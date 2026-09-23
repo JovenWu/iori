@@ -85,6 +85,9 @@ async def test_unavailable_returns_error_json(db, monkeypatch):
 
 
 async def test_truncation_marks_envelope(db, monkeypatch):
+    # Pin the budget — the deployed SECTORS_TOOL_MAX_CHARS can exceed the
+    # fixture payloads below.
+    monkeypatch.setattr(st.settings, "SECTORS_TOOL_MAX_CHARS", 8000)
     big = [{"v": "x" * 200} for _ in range(200)]
     monkeypatch.setattr(client, "get", _fake_get(data=big))
     out = _parse(await st.sectors_list_subsectors.ainvoke({}))

@@ -48,7 +48,16 @@ _WORKFLOW_HINTS = {
     ),
 }
 
-_agent_base = get_chat_model(settings.MODEL_NAME, temperature=0.3, streaming=True)
+# Reasoning-capable models get a streamed thinking summary when an effort
+# is configured; `reasoning=None` keeps the plain chat-completions path.
+_reasoning = (
+    {"effort": settings.MODEL_REASONING_EFFORT, "summary": "auto"}
+    if settings.MODEL_REASONING_EFFORT
+    else None
+)
+_agent_base = get_chat_model(
+    settings.MODEL_NAME, temperature=0.3, streaming=True, reasoning=_reasoning
+)
 agent_llm = _agent_base.bind_tools(AGENT_TOOLS)
 
 # Router-chosen workflow → runnable. `general` is deliberately tool-less so

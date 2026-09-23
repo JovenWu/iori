@@ -31,6 +31,9 @@ export type Thread = {
 export type ChatMessage = {
   role: string;
   content: string;
+  /** Reasoning summary the model produced — history form of the live
+   * `reasoning` stream events. */
+  reasoning?: string;
   /** Tool calls that ran in this turn — history reconstruction of the
    * live `tool` stream events. */
   tools?: { name: string; args?: Record<string, unknown> }[];
@@ -48,7 +51,15 @@ export type Memory = {
 
 export type StreamEvent = {
   seq: number;
-  type: "started" | "token" | "tool" | "chart" | "done" | "stopped" | "error";
+  type:
+    | "started"
+    | "reasoning"
+    | "token"
+    | "tool"
+    | "chart"
+    | "done"
+    | "stopped"
+    | "error";
   data: unknown;
 };
 
