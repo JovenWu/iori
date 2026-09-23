@@ -6,18 +6,23 @@ import type { ReactNode } from "react";
 export function ChartCard({
   title,
   fetchedAt,
+  height,
   children,
 }: {
   title: string;
   fetchedAt?: string;
+  /** Chart area height in px — defaults to 224 (h-56). */
+  height?: number;
   children: ReactNode;
 }) {
+  // Pin the zone — fetched_at is WIB and server/client render must agree.
   const stamp = fetchedAt
     ? new Date(fetchedAt).toLocaleString("en-GB", {
         day: "numeric",
         month: "short",
         hour: "2-digit",
         minute: "2-digit",
+        timeZone: "Asia/Jakarta",
       })
     : null;
   return (
@@ -30,7 +35,9 @@ export function ChartCard({
           </span>
         )}
       </figcaption>
-      <div className="h-56 w-full">{children}</div>
+      <div className="w-full" style={{ height: height ?? 224 }}>
+        {children}
+      </div>
     </figure>
   );
 }

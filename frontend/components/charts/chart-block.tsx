@@ -33,16 +33,42 @@ const GRID = {
   strokeDasharray: "3 3",
   vertical: false,
 } as const;
-const TIP = {
-  contentStyle: {
-    background: "var(--popover)",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--radius-sm)",
-    fontSize: 12,
-    color: "var(--popover-foreground)",
-  },
-  labelStyle: { color: "var(--muted-foreground)" },
-} as const;
+/* Recharts' default tooltip falls back to #000 text when a series lacks a
+   color — unreadable on dark. Custom content keeps a per-series color dot. */
+function ChartTip({
+  spec,
+  active,
+  payload,
+  label,
+}: {
+  spec: ChartSpec;
+  active?: boolean;
+  payload?: ReadonlyArray<{ name?: unknown; value?: unknown; color?: string }>;
+  label?: unknown;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-md border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+      {label != null && label !== "" && (
+        <p className="mb-1 text-ink-tertiary">{String(label)}</p>
+      )}
+      <ul className="space-y-0.5">
+        {payload.map((entry, i) => (
+          <li key={i} className="flex items-center gap-1.5">
+            <span
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{ background: entry.color || "var(--primary)" }}
+            />
+            <span className="text-muted-foreground">{String(entry.name)}</span>
+            <span className="font-medium">
+              {formatChartValue(Number(entry.value), spec.format)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 const SERIES_COLORS = [
   "var(--primary)",
@@ -58,26 +84,57 @@ function fmtValue(spec: ChartSpec) {
 
 function Frame({
   spec,
+  height,
   children,
 }: {
   spec: ChartSpec;
+  height?: number;
   children: React.ReactNode;
 }) {
   return (
-    <ChartCard title={spec.title} fetchedAt={spec.fetched_at}>
-      <ResponsiveContainer width="100%" height="100%">
-        {children}
-      </ResponsiveContainer>
+    <ChartCard title={spec.title} fetchedAt={spec.fetched_at} height={height}>
+      {children}
     </ChartCard>
   );
 }
 
+/* ResponsiveContainer sizes its child via context, not layout — a plain div
+   child collapses to 0×0. Only real charts may be wrapped in it. */
+function Measured({ children }: { children: React.ReactElement }) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      {children}
+    </ResponsiveContainer>
+  );
+}
+
+function hasZoom(spec: ChartSpec) {
+  return spec.x.type === "time" && spec.data.length > 15;
+}
+
+function shortDate(v: unknown) {
+  const d = new Date(String(v));
+  return Number.isNaN(d.getTime())
+    ? String(v)
+    : d.toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      });
+}
+
 /** Zoom brush on long time series — drag to window, scroll inside it. */
 function ZoomBrush({ spec }: { spec: ChartSpec }) {
-  if (spec.x.type !== "time" || spec.data.length <= 15) return null;
+  if (!hasZoom(spec)) return null;
   return (
-    <Brush dataKey={spec.x.key} height={18} stroke="var(--primary)"
-           travellerWidth={8} />
+    <Brush
+      dataKey={spec.x.key}
+      height={18}
+      stroke="var(--primary)"
+      travellerWidth={8}
+      tickFormatter={shortDate}
+    />
   );
 }
 
@@ -92,6 +149,7 @@ function SeriesChart({
   const Series = variant === "area" ? Area : Line;
   return (
     <Frame spec={spec}>
+      <Measured>
       <Chart
         data={spec.data}
         margin={{ left: 8, right: 8, top: 4, bottom: 0 }}
@@ -99,7 +157,7 @@ function SeriesChart({
         <CartesianGrid {...GRID} />
         <XAxis dataKey={spec.x.key} {...AXIS} />
         <YAxis tickFormatter={fmtValue(spec)} width={56} {...AXIS} />
-        <Tooltip formatter={fmtValue(spec)} {...TIP} />
+        <Tooltip content={<ChartTip spec={spec} />} />
         {spec.series.map((s, i) => (
           <Series
             key={s.key}
@@ -116,6 +174,7 @@ function SeriesChart({
         ))}
         <ZoomBrush spec={spec} />
       </Chart>
+      </Measured>
     </Frame>
   );
 }
@@ -130,6 +189,7 @@ function SignedArea({ spec }: { spec: ChartSpec }) {
   const gradId = `split-${spec.id}`;
   return (
     <Frame spec={spec}>
+      <Measured>
       <AreaChart
         data={spec.data}
         margin={{ left: 8, right: 8, top: 4, bottom: 0 }}
@@ -151,7 +211,7 @@ function SignedArea({ spec }: { spec: ChartSpec }) {
         <CartesianGrid {...GRID} />
         <XAxis dataKey={spec.x.key} {...AXIS} />
         <YAxis tickFormatter={fmtValue(spec)} width={56} {...AXIS} />
-        <Tooltip formatter={fmtValue(spec)} {...TIP} />
+        <Tooltip content={<ChartTip spec={spec} />} />
         <ReferenceLine y={0} stroke="var(--border)" />
         <Area
           type="monotone"
@@ -165,6 +225,7 @@ function SignedArea({ spec }: { spec: ChartSpec }) {
         />
         <ZoomBrush spec={spec} />
       </AreaChart>
+      </Measured>
     </Frame>
   );
 }
@@ -172,6 +233,7 @@ function SignedArea({ spec }: { spec: ChartSpec }) {
 function Bars({ spec }: { spec: ChartSpec }) {
   return (
     <Frame spec={spec}>
+      <Measured>
       <BarChart
         data={spec.data}
         margin={{ left: 8, right: 8, top: 4, bottom: 0 }}
@@ -179,7 +241,7 @@ function Bars({ spec }: { spec: ChartSpec }) {
         <CartesianGrid {...GRID} />
         <XAxis dataKey={spec.x.key} {...AXIS} />
         <YAxis tickFormatter={fmtValue(spec)} width={56} {...AXIS} />
-        <Tooltip formatter={fmtValue(spec)} {...TIP} />
+        <Tooltip content={<ChartTip spec={spec} />} />
         {spec.series.map((s, i) => (
           <Bar
             key={s.key}
@@ -190,6 +252,7 @@ function Bars({ spec }: { spec: ChartSpec }) {
           />
         ))}
       </BarChart>
+      </Measured>
     </Frame>
   );
 }
@@ -200,15 +263,28 @@ function DivergingBars({ spec }: { spec: ChartSpec }) {
   const groups = hasGroups
     ? [...new Set(spec.data.map((r) => String(r.group ?? "")))]
     : [""];
+  const rowsByGroup = groups.map((g) =>
+    spec.data.filter((r) => String(r.group ?? "") === g),
+  );
+  // 26px per bar + 30px axis + 22px group label + 12px gaps; card grows to
+  // fit, scrolls only past 420px.
+  const groupH = (g: string, rows: typeof spec.data) =>
+    rows.length * 26 + 30 + (g ? 22 : 0);
+  const needed = rowsByGroup.reduce(
+    (h, rows, i) => h + groupH(groups[i], rows),
+    12 * (groups.length - 1),
+  );
   return (
-    <Frame spec={spec}>
+    <Frame spec={spec} height={Math.min(420, Math.max(224, needed))}>
       <div className="flex h-full flex-col gap-3 overflow-y-auto">
-        {groups.map((g) => {
-          const rows = spec.data.filter(
-            (r) => String(r.group ?? "") === g,
-          );
+        {groups.map((g, gi) => {
+          const rows = rowsByGroup[gi];
           return (
-            <div key={g || "all"} className="flex min-h-0 flex-1 flex-col">
+            <div
+              key={g || "all"}
+              className="flex flex-col"
+              style={{ height: groupH(g, rows), flexShrink: 0 }}
+            >
               {g && (
                 <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-ink-tertiary">
                   {g}
@@ -235,9 +311,10 @@ function DivergingBars({ spec }: { spec: ChartSpec }) {
                       type="category"
                       dataKey={spec.x.key}
                       width={56}
+                      interval={0}
                       {...AXIS}
                     />
-                    <Tooltip formatter={fmtValue(spec)} {...TIP} />
+                    <Tooltip content={<ChartTip spec={spec} />} />
                     <ReferenceLine x={0} stroke="var(--border)" />
                     <Bar
                       dataKey={s.key}
@@ -270,6 +347,7 @@ function PriceVolume({ spec }: { spec: ChartSpec }) {
   const [price, volume] = spec.series;
   return (
     <Frame spec={spec}>
+      <Measured>
       <ComposedChart
         data={spec.data}
         margin={{ left: 8, right: 8, top: 4, bottom: 0 }}
@@ -289,7 +367,7 @@ function PriceVolume({ spec }: { spec: ChartSpec }) {
           width={48}
           {...AXIS}
         />
-        <Tooltip formatter={fmtValue(spec)} {...TIP} />
+        <Tooltip content={<ChartTip spec={spec} />} />
         {volume && (
           <Bar
             yAxisId="vol"
@@ -311,6 +389,7 @@ function PriceVolume({ spec }: { spec: ChartSpec }) {
         />
         <ZoomBrush spec={spec} />
       </ComposedChart>
+      </Measured>
     </Frame>
   );
 }

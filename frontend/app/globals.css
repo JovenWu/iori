@@ -670,3 +670,10 @@
     transition: none;
   }
 }
+
+/* Brush traveller labels render outside the travellers — let them paint into
+   the chart margin instead of clipping at the svg viewport. Series stay
+   clip-pathed internally, so nothing else spills. */
+.recharts-surface {
+  overflow: visible;
+}
