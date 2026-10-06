@@ -59,6 +59,14 @@ Detached producers keyed by thread: generation survives client disconnects. Each
 
 LangGraph `AsyncPostgresSaver` on a psycopg pool (pool size must exceed `STREAM_MAX_ACTIVE_RUNS` — enforced at startup). Full `messages` history + `summary`/`summarized_upto` per thread.
 
+### Aksi Korporasi (corporate-action copilot)
+
+A dedicated LangGraph (`app/aksi/`) checks the user's saved holdings against the Sectors corporate-action calendar — rights issues (HMETD), dividends, warrants — and produces per-event figures, sourced findings, and a gated bilingual brief, streamed live over SSE and persisted as a replayable report. Every number comes from pure calculators (`calc.py`); the LLM may only gather cached context and write `{{placeholders}}`, while a deterministic + JEV gate rejects digits or advice language and falls back to templates. Replay mode (`as_of`) clamps every tool window to the analysis date so historical runs never peek ahead.
+
+```
+scan → load_pack → calculate → investigate → brief → finish   (brief loops back to load_pack per event)
+```
+
 ## Stack
 
 Python 3.10+ · FastAPI · LangGraph · SQLAlchemy async (asyncpg) · psycopg pool · Alembic · Postgres 16 + pgvector · `typesafe-sdk` (JEV) · OpenRouter (`openai/gpt-5.6-luna` chat, `openai/text-embedding-3-small` embeddings) · `python-jose` JWT · slowapi · pytest.
@@ -98,6 +106,13 @@ API docs: `http://localhost:8000/api/v1/docs` (hidden when `ENVIRONMENT=producti
 | DELETE | `/api/v1/memories/{id}` | delete a memory |
 | GET | `/api/v1/sectors/cache/stats` | cache entries, hits, credits saved (per endpoint) |
 | DELETE | `/api/v1/sectors/cache` | flush the cache (returns count cleared) |
+| GET/PUT | `/api/v1/aksi/holdings` | user's holdings (scope of checks) |
+| POST | `/api/v1/aksi/check` | run a corporate-action check → SSE (`started`/`tool`/`event_found`/`numbers`/`finding`/`brief`/`budget`/`done`) |
+| GET | `/api/v1/aksi/check/stream` | re-attach/replay a check (`?last_seq=N`) |
+| POST | `/api/v1/aksi/check/stop` | stop the active check (partial report kept) |
+| GET | `/api/v1/aksi/reports/latest` | latest report (`?mode=live|replay`) |
+| GET | `/api/v1/aksi/reports/{id}` | one report |
+| POST | `/api/v1/aksi/impact` | one holding's corporate-action figures, no LLM |
 
 SSE events are JSON in `data:` lines: `{"seq": N, "type": "token|tool|done|stopped|error", "data": ...}` — `tool` events carry `{name, status: "call"|"done"}` so clients can render tool progress.
 
