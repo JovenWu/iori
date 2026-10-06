@@ -29,9 +29,9 @@ function parse(rows: Row[]): { holdings: Holding[]; error: string | null } {
       shares: Number(r.shares),
       avg_price: r.avgPrice.trim() ? Number(r.avgPrice) : null,
     }));
-  if (holdings.some((h) => !SYMBOL_RE.test(h.symbol))) return { holdings, error: "Ticker harus 4 huruf, misalnya BBCA." };
-  if (holdings.some((h) => !Number.isInteger(h.shares) || h.shares < 1)) return { holdings, error: "Jumlah saham harus bilangan bulat ≥ 1 (lembar)." };
-  if (new Set(holdings.map((h) => h.symbol)).size !== holdings.length) return { holdings, error: "Ticker tidak boleh ganda." };
+  if (holdings.some((h) => !SYMBOL_RE.test(h.symbol))) return { holdings, error: "Ticker must be 4 letters, e.g. BBCA." };
+  if (holdings.some((h) => !Number.isInteger(h.shares) || h.shares < 1)) return { holdings, error: "Shares must be a whole number ≥ 1." };
+  if (new Set(holdings.map((h) => h.symbol)).size !== holdings.length) return { holdings, error: "Duplicate tickers are not allowed." };
   return { holdings, error: null };
 }
 
@@ -50,36 +50,36 @@ export function HoldingsEditor({ initial }: { initial: Holding[] }) {
     setSaving(true);
     const ok = await useAksiStore.getState().saveHoldings(holdings);
     setSaving(false);
-    if (ok) toast.success("Portofolio tersimpan");
+    if (ok) toast.success("Holdings saved");
   };
 
   return (
     <section className="rounded-xl border border-border bg-card">
       <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
         <div>
-          <h2 className="text-sm font-medium tracking-tight">Saham yang kamu pegang</h2>
-          <p className="text-xs text-muted-foreground">Jumlah dalam lembar (1 lot = 100 lembar).</p>
+          <h2 className="text-sm font-medium tracking-tight">Your holdings</h2>
+          <p className="text-xs text-muted-foreground">Share counts in shares (1 lot = 100 shares).</p>
         </div>
         <Button size="sm" variant="secondary" disabled={!dirty || !!error || saving || running} onClick={save}>
-          {saving ? "Menyimpan…" : "Simpan"}
+          {saving ? "Saving…" : "Save"}
         </Button>
       </header>
       <div className="space-y-2 px-4 py-3">
         <div className={`${COLS} text-xs text-muted-foreground`}>
           <span>Ticker</span>
-          <span>Jumlah (lembar)</span>
-          <span>Harga rata-rata (opsional)</span>
+          <span>Shares</span>
+          <span>Avg price (optional)</span>
           <span />
         </div>
         {rows.map((r, i) => (
           <div key={i} className={COLS}>
             <Input aria-label="Ticker" value={r.symbol} maxLength={7} placeholder="BBCA"
               className="font-mono uppercase" onChange={(e) => update(i, { symbol: e.target.value })} />
-            <Input aria-label="Jumlah lembar" inputMode="numeric" value={r.shares} placeholder="1000"
+            <Input aria-label="Shares" inputMode="numeric" value={r.shares} placeholder="1000"
               className="font-mono" onChange={(e) => update(i, { shares: e.target.value.replace(/[^\d]/g, "") })} />
-            <Input aria-label="Harga rata-rata" inputMode="decimal" value={r.avgPrice} placeholder="—"
+            <Input aria-label="Average price" inputMode="decimal" value={r.avgPrice} placeholder="—"
               className="font-mono" onChange={(e) => update(i, { avgPrice: e.target.value.replace(/[^\d.]/g, "") })} />
-            <Button size="icon-sm" variant="ghost" aria-label="Hapus baris"
+            <Button size="icon-sm" variant="ghost" aria-label="Remove row"
               onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((_, j) => j !== i) : [BLANK]))}>
               <Trash2Icon className="size-4" />
             </Button>
@@ -88,7 +88,7 @@ export function HoldingsEditor({ initial }: { initial: Holding[] }) {
         <div className="flex items-center justify-between gap-3">
           <Button size="sm" variant="ghost" disabled={rows.length >= 30} onClick={() => setRows((rs) => [...rs, BLANK])}>
             <PlusIcon className="size-4" />
-            Tambah saham
+            Add holding
           </Button>
           {error && <p className="text-xs text-destructive">{error}</p>}
         </div>

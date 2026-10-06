@@ -126,7 +126,7 @@ export const useAksiStore = create<AksiStore>()((set, get) => {
         set((s) => ({ holdings, holdingsLoaded: true, holdingsVersion: s.holdingsVersion + 1 }));
       } catch {
         set({ holdingsLoaded: true });
-        toast.error("Gagal memuat portofolio");
+        toast.error("Couldn't load holdings");
       }
     },
 
@@ -136,7 +136,7 @@ export const useAksiStore = create<AksiStore>()((set, get) => {
         set((s) => ({ holdings: saved.holdings, holdingsVersion: s.holdingsVersion + 1 }));
         return true;
       } catch (err) {
-        toast.error(err instanceof ApiError ? err.message : "Gagal menyimpan portofolio");
+        toast.error(err instanceof ApiError ? err.message : "Couldn't save holdings");
         return false;
       }
     },
@@ -242,7 +242,7 @@ export const useAksiStore = create<AksiStore>()((set, get) => {
           if ((err as Error).name !== "AbortError") {
             settle("error");
             set({ failed: true });
-            toast.error(err instanceof ApiError ? err.message : "Pengecekan gagal");
+            toast.error(err instanceof ApiError ? err.message : "Check failed");
           }
         } finally {
           if (controller === ctrl) controller = null;

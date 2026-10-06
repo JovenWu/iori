@@ -20,25 +20,25 @@ export function EvidenceDrawer({ event }: { event: AksiEvent }) {
       <SheetTrigger asChild>
         <Button size="sm" variant="ghost">
           <DatabaseIcon className="size-3.5" />
-          Lihat sumber data
+          View data sources
         </Button>
       </SheetTrigger>
       <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
         <SheetHeader>
-          <SheetTitle className="font-mono">{event.symbol} · sumber data</SheetTitle>
+          <SheetTitle className="font-mono">{event.symbol} · data sources</SheetTitle>
           <SheetDescription>
-            Setiap angka dihitung oleh kode dari data Sectors — bukan oleh AI.
+            Every figure is computed by code from Sectors data — not by AI.
           </SheetDescription>
         </SheetHeader>
         <div className="space-y-6 px-4 pb-6 text-sm">
           <section>
-            <h4 className="mb-2 text-xs font-medium text-muted-foreground">Angka & rumus</h4>
+            <h4 className="mb-2 text-xs font-medium text-muted-foreground">Figures & formulas</h4>
             <div className="divide-y divide-border rounded-lg border border-border">
               {figures.map((f) => (
                 <div key={f.key} className="space-y-1 px-3 py-2">
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-mono text-xs text-muted-foreground">{f.key}</span>
-                    <span className="font-mono">{formatFigure(f)}</span>
+                    <span className="font-mono">{formatFigure(f, "en")}</span>
                   </div>
                   <div className="font-mono text-[11px] text-muted-foreground">{f.formula}</div>
                   {Object.keys(f.inputs).length > 0 && (
@@ -53,29 +53,29 @@ export function EvidenceDrawer({ event }: { event: AksiEvent }) {
           </section>
           {event.findings.length > 0 && (
             <section>
-              <h4 className="mb-2 text-xs font-medium text-muted-foreground">Konteks</h4>
+              <h4 className="mb-2 text-xs font-medium text-muted-foreground">Context</h4>
               <ul className="space-y-2">
                 {event.findings.map((f) => (
                   <li key={f.id} className="text-xs">
                     <span className="font-mono text-muted-foreground">{f.source_tool}</span>
                     {f.fetched_at && (
-                      <span className="text-muted-foreground"> · diambil {formatDate(f.fetched_at)}</span>
+                      <span className="text-muted-foreground"> · fetched {formatDate(f.fetched_at, "en")}</span>
                     )}
-                    <div className="mt-0.5 text-ink-muted">{f.text_id}</div>
+                    <div className="mt-0.5 text-ink-muted">{f.text_en}</div>
                   </li>
                 ))}
               </ul>
             </section>
           )}
           <section>
-            <h4 className="mb-2 text-xs font-medium text-muted-foreground">Data mentah aksi korporasi</h4>
+            <h4 className="mb-2 text-xs font-medium text-muted-foreground">Raw corporate-action data</h4>
             <pre className="overflow-x-auto rounded-lg bg-secondary p-3 font-mono text-[11px]">
               {JSON.stringify(event.row, null, 2)}
             </pre>
           </section>
           <p className="text-xs text-muted-foreground">
-            Batasan: data kalender tidak memuat tanggal pengumuman; mode replay hanya memakai data sampai
-            tanggal replay; nama pemegang saham utama berasal dari data kepemilikan terkini.
+            Limitations: calendar data does not include announcement dates; replay mode only uses data
+            up to the replay date; the controlling-shareholder name comes from the latest ownership data.
           </p>
         </div>
       </SheetContent>

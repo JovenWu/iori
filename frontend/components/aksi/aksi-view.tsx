@@ -14,7 +14,7 @@ import { useAksiStore } from "@/lib/stores/aksi";
 import { cn } from "@/lib/utils";
 
 const DISCLAIMER =
-  "Informasi edukatif, bukan rekomendasi investasi. Verifikasi dengan keterbukaan informasi resmi IDX dan prospektus.";
+  "Educational information, not investment advice. Verify against official IDX disclosures and the prospectus.";
 
 function ModeToggle() {
   const mode = useAksiStore((s) => s.mode);
@@ -27,12 +27,12 @@ function ModeToggle() {
           <button key={m} type="button" disabled={running} aria-pressed={mode === m}
             onClick={() => useAksiStore.getState().setMode(m)}
             className={cn("px-2.5 py-1 transition-colors", mode === m ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")}>
-            {m === "live" ? "Hari ini" : "Replay"}
+            {m === "live" ? "Today" : "Replay"}
           </button>
         ))}
       </div>
       {mode === "replay" && (
-        <Input type="date" aria-label="Tanggal replay" value={asOf} min="2021-01-01" max={todayIso()}
+        <Input type="date" aria-label="Replay date" value={asOf} min="2021-01-01" max={todayIso()}
           disabled={running} className="h-7 w-36 font-mono text-xs"
           onChange={(e) => useAksiStore.getState().setAsOf(e.target.value)} />
       )}
@@ -67,7 +67,7 @@ export function AksiView() {
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
         <SidebarTrigger />
-        <h1 className="text-sm font-medium tracking-tight">Aksi Korporasi</h1>
+        <h1 className="text-sm font-medium tracking-tight">Corporate Actions</h1>
         <div className="ml-auto flex items-center gap-2">
           <ModeToggle />
           {running ? (
@@ -78,7 +78,7 @@ export function AksiView() {
           ) : (
             <Button size="sm" disabled={!holdings.length} onClick={() => useAksiStore.getState().run()}>
               <PlayIcon className="size-3.5" />
-              Cek aksi korporasi
+              Check corporate actions
             </Button>
           )}
         </div>
@@ -88,7 +88,7 @@ export function AksiView() {
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6">
           {reportMode === "replay" && reportAsOf && (
             <div className="rounded-lg border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
-              Replay historis — data per <span className="font-mono text-foreground">{formatDate(reportAsOf)}</span>. Bukan data hari ini.
+              Historical replay — data as of <span className="font-mono text-foreground">{formatDate(reportAsOf, "en")}</span>. Not current data.
             </div>
           )}
 
@@ -114,8 +114,8 @@ export function AksiView() {
 
           {!running && reportId && order.length === 0 && (
             <p className="rounded-xl border border-border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
-              Tidak ada aksi korporasi untuk sahammu dalam 30 hari terakhir dan 60 hari ke depan
-              {reportAsOf ? ` (per ${formatDate(reportAsOf)})` : ""}.
+              No corporate actions for your holdings in the last 30 days or the next 60 days
+              {reportAsOf ? ` (as of ${formatDate(reportAsOf, "en")})` : ""}.
             </p>
           )}
 

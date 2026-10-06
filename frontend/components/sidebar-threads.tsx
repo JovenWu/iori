@@ -180,14 +180,14 @@ export function SidebarThreads() {
           <SidebarMenuItem>
             <SidebarMenuButton
               asChild
-              tooltip="Aksi Korporasi"
+              tooltip="Corporate Actions"
               isActive={pathname === "/aksi"}
               className="h-10 px-4"
             >
               <Link href="/aksi">
                 <CalendarClockIcon />
                 <span className="group-data-[collapsible=icon]:hidden">
-                  Aksi Korporasi
+                  Corporate Actions
                 </span>
               </Link>
             </SidebarMenuButton>

@@ -93,8 +93,8 @@ export type AksiStreamEvent = {
 
 export const KIND_LABEL: Record<EventKind, string> = {
   right_issue: "Rights issue (HMETD)",
-  dividend: "Dividen tunai",
-  warrant: "Waran",
+  dividend: "Cash dividend",
+  warrant: "Warrant",
 };
 
 const MONTHS: Record<Lang, string[]> = {
