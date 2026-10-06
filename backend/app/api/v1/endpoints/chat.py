@@ -1,20 +1,19 @@
 """Chat + threads: SSE streaming (detached runs), resume, stop, CRUD."""
 
 import asyncio
-import json
 import logging
 import time
 import uuid
 from datetime import datetime
-from typing import Any, AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent import service
-from app.agent.runs import AgentRun, RunLimitError, registry
+from app.agent.runs import RunLimitError, registry
 from app.api import deps
+from app.api.sse import sse_response
 from app.models.user import User
 from app.schemas.chat import (
     ChatStreamRequest,
@@ -28,28 +27,6 @@ from app.schemas.chat import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-_SSE_HEADERS = {
-    "Cache-Control": "no-cache",
-    "X-Accel-Buffering": "no",
-    "Connection": "keep-alive",
-}
-
-
-def _sse(event: dict[str, Any]) -> str:
-    return f"data: {json.dumps(event)}\n\n"
-
-
-async def _event_stream(run: AgentRun, last_seq: int = 0) -> AsyncIterator[str]:
-    queue = run.subscribe(last_seq)
-    try:
-        while True:
-            event = await queue.get()
-            if event is None:
-                break
-            yield _sse(event)
-    finally:
-        run.unsubscribe(queue)
 
 
 @router.post("/chat/stream")
@@ -85,9 +62,7 @@ async def chat_stream(
             "started", {"thread_id": tid, "started_at": int(time.time() * 1000)}
         )
 
-    return StreamingResponse(
-        _event_stream(run), media_type="text/event-stream", headers=_SSE_HEADERS
-    )
+    return sse_response(run)
 
 
 @router.get("/threads/{thread_id}/stream")
@@ -104,11 +79,7 @@ async def thread_stream(
     run = registry.get(str(thread_id))
     if run is None:
         raise HTTPException(status_code=404, detail="No run for this thread")
-    return StreamingResponse(
-        _event_stream(run, last_seq),
-        media_type="text/event-stream",
-        headers=_SSE_HEADERS,
-    )
+    return sse_response(run, last_seq)
 
 
 @router.post("/threads/{thread_id}/stop", response_model=StopOut)
