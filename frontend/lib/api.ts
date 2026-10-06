@@ -2,6 +2,7 @@
 
 /* API client — JWT in localStorage, refresh-on-401, SSE stream parser. */
 
+import type { AksiStreamEvent, Holding, Report } from "@/lib/aksi";
 import type { ChartSpec } from "@/lib/charts";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -215,25 +216,25 @@ export const listMemories = () =>
 export const deleteMemory = (id: string) =>
   apiFetch<{ detail: string }>(`/memories/${id}`, { method: "DELETE" });
 
-/** POST /chat/stream — yields parsed SSE events until the run finishes. */
-export async function* streamChat(
-  message: string,
-  threadId: string | null,
+/** POST an SSE endpoint — yields parsed events until the run finishes. */
+async function* streamSSE<E>(
+  path: string,
+  body: unknown,
   signal?: AbortSignal,
-): AsyncGenerator<StreamEvent> {
+): AsyncGenerator<E> {
   const token = getAccessToken();
-  const resp = await fetch(`${BASE}/chat/stream`, {
+  const resp = await fetch(`${BASE}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ message, thread_id: threadId }),
+    body: JSON.stringify(body),
     signal,
   });
   if (!resp.ok) {
-    const body = await resp.json().catch(() => ({}));
-    throw new ApiError(resp.status, body.detail ?? `HTTP ${resp.status}`);
+    const err = await resp.json().catch(() => ({}));
+    throw new ApiError(resp.status, err.detail ?? `HTTP ${resp.status}`);
   }
   if (!resp.body) throw new ApiError(0, "No response body");
 
@@ -251,7 +252,7 @@ export async function* streamChat(
         buffer = buffer.slice(idx + 2);
         for (const line of frame.split("\n")) {
           if (line.startsWith("data: ")) {
-            yield JSON.parse(line.slice(6)) as StreamEvent;
+            yield JSON.parse(line.slice(6)) as E;
           }
         }
       }
@@ -260,3 +261,27 @@ export async function* streamChat(
     reader.cancel().catch(() => {});
   }
 }
+
+/** POST /chat/stream — yields parsed SSE events until the run finishes. */
+export function streamChat(
+  message: string,
+  threadId: string | null,
+  signal?: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  return streamSSE<StreamEvent>("/chat/stream", { message, thread_id: threadId }, signal);
+}
+
+export const getHoldings = () => apiFetch<{ holdings: Holding[] }>("/aksi/holdings");
+export const putHoldings = (holdings: Holding[]) =>
+  apiFetch<{ holdings: Holding[] }>("/aksi/holdings", {
+    method: "PUT",
+    body: JSON.stringify({ holdings }),
+  });
+export const streamAksiCheck = (
+  body: { as_of?: string | null },
+  signal?: AbortSignal,
+) => streamSSE<AksiStreamEvent>("/aksi/check", body, signal);
+export const stopAksiCheck = () =>
+  apiFetch<{ stopped: boolean }>("/aksi/check/stop", { method: "POST" });
+export const getLatestReport = (mode?: "live" | "replay") =>
+  apiFetch<Report>(`/aksi/reports/latest${mode ? `?mode=${mode}` : ""}`);
