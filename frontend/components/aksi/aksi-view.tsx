@@ -9,17 +9,31 @@ import { HoldingsEditor } from "@/components/aksi/holdings-editor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { formatDate, todayIso } from "@/lib/aksi";
+import { type Lang, copy, formatDate, todayIso } from "@/lib/aksi";
 import { useAksiStore } from "@/lib/stores/aksi";
 import { cn } from "@/lib/utils";
 
-const DISCLAIMER =
-  "Educational information, not investment advice. Verify against official IDX disclosures and the prospectus.";
+function LangToggle() {
+  const lang = useAksiStore((s) => s.lang);
+  return (
+    <div className="flex rounded-md border border-border text-xs" role="group" aria-label={copy[lang].langAria}>
+      {(["en", "id"] as const).map((l: Lang) => (
+        <button key={l} type="button" aria-pressed={lang === l}
+          onClick={() => useAksiStore.getState().setLang(l)}
+          className={cn("px-2 py-1 font-mono uppercase transition-colors", lang === l ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")}>
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function ModeToggle() {
   const mode = useAksiStore((s) => s.mode);
   const asOf = useAksiStore((s) => s.asOf);
   const running = useAksiStore((s) => s.running);
+  const lang = useAksiStore((s) => s.lang);
+  const t = copy[lang];
   return (
     <div className="flex items-center gap-2">
       <div className="flex rounded-md border border-border text-xs" role="group" aria-label="Mode">
@@ -27,12 +41,12 @@ function ModeToggle() {
           <button key={m} type="button" disabled={running} aria-pressed={mode === m}
             onClick={() => useAksiStore.getState().setMode(m)}
             className={cn("px-2.5 py-1 transition-colors", mode === m ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")}>
-            {m === "live" ? "Today" : "Replay"}
+            {m === "live" ? t.modeToday : t.modeReplay}
           </button>
         ))}
       </div>
       {mode === "replay" && (
-        <Input type="date" aria-label="Replay date" value={asOf} min="2021-01-01" max={todayIso()}
+        <Input type="date" aria-label={t.replayDateAria} value={asOf} min="2021-01-01" max={todayIso()}
           disabled={running} className="h-7 w-36 font-mono text-xs"
           onChange={(e) => useAksiStore.getState().setAsOf(e.target.value)} />
       )}
@@ -56,6 +70,8 @@ export function AksiView() {
   const reportAsOf = useAksiStore((s) => s.reportAsOf);
   const order = useAksiStore((s) => s.order);
   const events = useAksiStore((s) => s.events);
+  const lang = useAksiStore((s) => s.lang);
+  const t = copy[lang];
 
   useEffect(() => {
     const store = useAksiStore.getState();
@@ -67,18 +83,19 @@ export function AksiView() {
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
         <SidebarTrigger />
-        <h1 className="text-sm font-medium tracking-tight">Corporate Actions</h1>
+        <h1 className="text-sm font-medium tracking-tight">{t.title}</h1>
         <div className="ml-auto flex items-center gap-2">
+          <LangToggle />
           <ModeToggle />
           {running ? (
             <Button size="sm" variant="secondary" onClick={() => useAksiStore.getState().stop()}>
               <SquareIcon className="size-3.5" />
-              Stop
+              {t.stop}
             </Button>
           ) : (
             <Button size="sm" disabled={!holdings.length} onClick={() => useAksiStore.getState().run()}>
               <PlayIcon className="size-3.5" />
-              Check corporate actions
+              {t.check}
             </Button>
           )}
         </div>
@@ -88,7 +105,7 @@ export function AksiView() {
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6">
           {reportMode === "replay" && reportAsOf && (
             <div className="rounded-lg border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
-              Historical replay — data as of <span className="font-mono text-foreground">{formatDate(reportAsOf, "en")}</span>. Not current data.
+              {t.replayBannerPre} <span className="font-mono text-foreground">{formatDate(reportAsOf, lang)}</span>. {t.replayBannerPost}
             </div>
           )}
 
@@ -114,12 +131,12 @@ export function AksiView() {
 
           {!running && reportId && order.length === 0 && (
             <p className="rounded-xl border border-border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
-              No corporate actions for your holdings in the last 30 days or the next 60 days
-              {reportAsOf ? ` (as of ${formatDate(reportAsOf, "en")})` : ""}.
+              {t.empty}
+              {reportAsOf ? ` (${t.asOf} ${formatDate(reportAsOf, lang)})` : ""}.
             </p>
           )}
 
-          <p className="text-xs text-muted-foreground">{DISCLAIMER}</p>
+          <p className="text-xs text-muted-foreground">{t.disclaimer}</p>
         </div>
       </div>
     </div>

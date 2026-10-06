@@ -27,6 +27,7 @@ import { markdownToPlainText } from "@/lib/markdown";
 import { ThreadActionsMenu } from "@/components/thread-actions-menu";
 import { ThreadActionDialogs } from "@/components/thread-action-dialogs";
 import { useThreadActions } from "@/hooks/use-thread-actions";
+import { copy } from "@/lib/aksi";
 import { useAksiStore } from "@/lib/stores/aksi";
 import { useChatStore } from "@/lib/stores/chat";
 import {
@@ -116,6 +117,7 @@ export function SidebarThreads() {
   }, []);
 
   const urgentCount = useAksiStore((s) => s.urgentCount);
+  const aksiLabel = copy[useAksiStore((s) => s.lang)].sidebarLabel;
   useEffect(() => {
     void useAksiStore.getState().refreshBadge();
   }, []);
@@ -180,14 +182,14 @@ export function SidebarThreads() {
           <SidebarMenuItem>
             <SidebarMenuButton
               asChild
-              tooltip="Corporate Actions"
-              isActive={pathname === "/aksi"}
+              tooltip={aksiLabel}
+              isActive={pathname === "/action"}
               className="h-10 px-4"
             >
-              <Link href="/aksi">
+              <Link href="/action">
                 <CalendarClockIcon />
                 <span className="group-data-[collapsible=icon]:hidden">
-                  Corporate Actions
+                  {aksiLabel}
                 </span>
               </Link>
             </SidebarMenuButton>

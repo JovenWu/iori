@@ -11,34 +11,37 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { type AksiEvent, formatDate, formatFigure } from "@/lib/aksi";
+import { type AksiEvent, copy, formatDate, formatFigure } from "@/lib/aksi";
+import { useAksiStore } from "@/lib/stores/aksi";
 
 export function EvidenceDrawer({ event }: { event: AksiEvent }) {
+  const lang = useAksiStore((s) => s.lang);
+  const t = copy[lang];
   const figures = Object.values(event.figures ?? {});
   return (
     <Sheet>
       <SheetTrigger asChild>
         <Button size="sm" variant="ghost">
           <DatabaseIcon className="size-3.5" />
-          View data sources
+          {t.sources}
         </Button>
       </SheetTrigger>
       <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
         <SheetHeader>
-          <SheetTitle className="font-mono">{event.symbol} · data sources</SheetTitle>
+          <SheetTitle className="font-mono">{event.symbol} · {t.sourcesTitle}</SheetTitle>
           <SheetDescription>
-            Every figure is computed by code from Sectors data — not by AI.
+            {t.sourcesDesc}
           </SheetDescription>
         </SheetHeader>
         <div className="space-y-6 px-4 pb-6 text-sm">
           <section>
-            <h4 className="mb-2 text-xs font-medium text-muted-foreground">Figures & formulas</h4>
+            <h4 className="mb-2 text-xs font-medium text-muted-foreground">{t.figuresHeading}</h4>
             <div className="divide-y divide-border rounded-lg border border-border">
               {figures.map((f) => (
                 <div key={f.key} className="space-y-1 px-3 py-2">
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-mono text-xs text-muted-foreground">{f.key}</span>
-                    <span className="font-mono">{formatFigure(f, "en")}</span>
+                    <span className="font-mono">{formatFigure(f, lang)}</span>
                   </div>
                   <div className="font-mono text-[11px] text-muted-foreground">{f.formula}</div>
                   {Object.keys(f.inputs).length > 0 && (
@@ -53,29 +56,28 @@ export function EvidenceDrawer({ event }: { event: AksiEvent }) {
           </section>
           {event.findings.length > 0 && (
             <section>
-              <h4 className="mb-2 text-xs font-medium text-muted-foreground">Context</h4>
+              <h4 className="mb-2 text-xs font-medium text-muted-foreground">{t.contextHeading}</h4>
               <ul className="space-y-2">
                 {event.findings.map((f) => (
                   <li key={f.id} className="text-xs">
                     <span className="font-mono text-muted-foreground">{f.source_tool}</span>
                     {f.fetched_at && (
-                      <span className="text-muted-foreground"> · fetched {formatDate(f.fetched_at, "en")}</span>
+                      <span className="text-muted-foreground"> · {t.fetched} {formatDate(f.fetched_at, lang)}</span>
                     )}
-                    <div className="mt-0.5 text-ink-muted">{f.text_en}</div>
+                    <div className="mt-0.5 text-ink-muted">{lang === "id" ? f.text_id : f.text_en}</div>
                   </li>
                 ))}
               </ul>
             </section>
           )}
           <section>
-            <h4 className="mb-2 text-xs font-medium text-muted-foreground">Raw corporate-action data</h4>
+            <h4 className="mb-2 text-xs font-medium text-muted-foreground">{t.rawHeading}</h4>
             <pre className="overflow-x-auto rounded-lg bg-secondary p-3 font-mono text-[11px]">
               {JSON.stringify(event.row, null, 2)}
             </pre>
           </section>
           <p className="text-xs text-muted-foreground">
-            Limitations: calendar data does not include announcement dates; replay mode only uses data
-            up to the replay date; the controlling-shareholder name comes from the latest ownership data.
+            {t.limitations}
           </p>
         </div>
       </SheetContent>

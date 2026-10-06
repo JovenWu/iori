@@ -91,10 +91,10 @@ export type AksiStreamEvent = {
   data: unknown;
 };
 
-export const KIND_LABEL: Record<EventKind, string> = {
-  right_issue: "Rights issue (HMETD)",
-  dividend: "Cash dividend",
-  warrant: "Warrant",
+export const KIND_LABEL: Record<EventKind, Record<Lang, string>> = {
+  right_issue: { en: "Rights issue (HMETD)", id: "HMETD (rights issue)" },
+  dividend: { en: "Cash dividend", id: "Dividen tunai" },
+  warrant: { en: "Warrant", id: "Waran" },
 };
 
 const MONTHS: Record<Lang, string[]> = {
@@ -143,3 +143,265 @@ export function formatFigure(f: Figure | undefined, lang: Lang = "id"): string {
 export function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
+
+/* UI copy, keyed by display language. The global toggle switches both
+   chrome and brief content (briefs/findings ship both languages). */
+
+export type AksiCopy = {
+  title: string;
+  sidebarLabel: string;
+  modeToday: string;
+  modeReplay: string;
+  replayDateAria: string;
+  langAria: string;
+  check: string;
+  stop: string;
+  replayBannerPre: string;
+  replayBannerPost: string;
+  empty: string;
+  asOf: string;
+  holdingsTitle: string;
+  holdingsDesc: string;
+  save: string;
+  saving: string;
+  colTicker: string;
+  colShares: string;
+  colAvgPrice: string;
+  ariaTicker: string;
+  ariaShares: string;
+  ariaAvgPrice: string;
+  removeRow: string;
+  addHolding: string;
+  errTicker: string;
+  errShares: string;
+  errDuplicate: string;
+  savedToast: string;
+  loadFailed: string;
+  saveFailed: string;
+  checkFailed: string;
+  timelineAria: string;
+  today: string;
+  inDays: (n: number) => string;
+  ratio: string;
+  exercisePrice: string;
+  dividendPerShare: string;
+  dilutionBefore: string;
+  dilutionAfter: string;
+  scenariosHeading: string;
+  scenarioExercise: string;
+  scenarioSell: string;
+  scenarioLapse: string;
+  scenarioExerciseRest: (cost: string) => string;
+  scenarioSellRest: (value: string, dilution: string) => string;
+  scenarioLapseRest: (deadline: string, value: string) => string;
+  verify: string;
+  cardDisclaimer: string;
+  disclaimer: string;
+  sources: string;
+  sourcesTitle: string;
+  sourcesDesc: string;
+  figuresHeading: string;
+  contextHeading: string;
+  fetched: string;
+  rawHeading: string;
+  limitations: string;
+  tiles: Record<EventKind, { key: string; label: string }[]>;
+  timelineLabels: Record<EventKind, { key: string; label: string }[]>;
+};
+
+export const copy: Record<Lang, AksiCopy> = {
+  en: {
+    title: "Corporate Actions",
+    sidebarLabel: "Corporate Actions",
+    modeToday: "Today",
+    modeReplay: "Replay",
+    replayDateAria: "Replay date",
+    langAria: "Language",
+    check: "Check corporate actions",
+    stop: "Stop",
+    replayBannerPre: "Historical replay — data as of",
+    replayBannerPost: "Not current data.",
+    empty: "No corporate actions for your holdings in the last 30 days or the next 60 days",
+    asOf: "as of",
+    holdingsTitle: "Your holdings",
+    holdingsDesc: "Share counts in shares (1 lot = 100 shares).",
+    save: "Save",
+    saving: "Saving…",
+    colTicker: "Ticker",
+    colShares: "Shares",
+    colAvgPrice: "Avg price (optional)",
+    ariaTicker: "Ticker",
+    ariaShares: "Shares",
+    ariaAvgPrice: "Average price",
+    removeRow: "Remove row",
+    addHolding: "Add holding",
+    errTicker: "Ticker must be 4 letters, e.g. BBCA.",
+    errShares: "Shares must be a whole number ≥ 1.",
+    errDuplicate: "Duplicate tickers are not allowed.",
+    savedToast: "Holdings saved",
+    loadFailed: "Couldn't load holdings",
+    saveFailed: "Couldn't save holdings",
+    checkFailed: "Check failed",
+    timelineAria: "Timeline",
+    today: "Today",
+    inDays: (n) => `in ${n} days`,
+    ratio: "Ratio",
+    exercisePrice: "Exercise price",
+    dividendPerShare: "Dividend per share",
+    dilutionBefore: "If the rights lapse, your ownership falls",
+    dilutionAfter: ".",
+    scenariosHeading: "Three scenarios (theoretical, before transaction costs):",
+    scenarioExercise: "Exercise all",
+    scenarioSell: "Sell the rights",
+    scenarioLapse: "Let lapse",
+    scenarioExerciseRest: (cost) => `pay ${cost}, ownership unchanged.`,
+    scenarioSellRest: (value, dilution) => `theoretical value ±${value}, ownership falls ${dilution}.`,
+    scenarioLapseRest: (deadline, value) => `rights expire after ${deadline}, theoretical value of ${value} lost.`,
+    verify: "What to verify",
+    cardDisclaimer: "Educational information, not investment advice.",
+    disclaimer: "Educational information, not investment advice. Verify against official IDX disclosures and the prospectus.",
+    sources: "View data sources",
+    sourcesTitle: "data sources",
+    sourcesDesc: "Every figure is computed by code from Sectors data — not by AI.",
+    figuresHeading: "Figures & formulas",
+    contextHeading: "Context",
+    fetched: "fetched",
+    rawHeading: "Raw corporate-action data",
+    limitations: "Limitations: calendar data does not include announcement dates; replay mode only uses data up to the replay date; the controlling-shareholder name comes from the latest ownership data.",
+    tiles: {
+      right_issue: [
+        { key: "rights_entitled", label: "Your rights (HMETD)" },
+        { key: "cost_to_exercise_all", label: "Cost to exercise all" },
+        { key: "terp", label: "TERP (theoretical)" },
+        { key: "rights_value_total", label: "Theoretical rights value" },
+      ],
+      dividend: [
+        { key: "gross_dividend", label: "Your gross dividend" },
+        { key: "yield_on_cost", label: "Yield on cost" },
+        { key: "days_to_cum", label: "Days to cum date" },
+      ],
+      warrant: [
+        { key: "intrinsic_per_warrant", label: "Intrinsic value / warrant" },
+        { key: "days_to_deadline", label: "Days to exercise deadline" },
+      ],
+    },
+    timelineLabels: {
+      right_issue: [
+        { key: "cum_date", label: "Cum" },
+        { key: "ex_date", label: "Ex" },
+        { key: "recording_date", label: "Recording" },
+        { key: "trading_period_start", label: "Rights trading starts" },
+        { key: "trading_period_end", label: "Rights deadline" },
+      ],
+      dividend: [
+        { key: "cum_date", label: "Cum" },
+        { key: "ex_date", label: "Ex" },
+        { key: "recording_date", label: "Recording" },
+        { key: "payment_date", label: "Payment" },
+      ],
+      warrant: [
+        { key: "trading_period_start", label: "Trading starts" },
+        { key: "ex_per_start", label: "Exercise starts" },
+        { key: "ex_per_end", label: "Exercise ends" },
+        { key: "maturity_date", label: "Maturity" },
+      ],
+    },
+  },
+  id: {
+    title: "Aksi Korporasi",
+    sidebarLabel: "Aksi Korporasi",
+    modeToday: "Hari ini",
+    modeReplay: "Replay",
+    replayDateAria: "Tanggal replay",
+    langAria: "Bahasa",
+    check: "Cek aksi korporasi",
+    stop: "Stop",
+    replayBannerPre: "Replay historis — data per",
+    replayBannerPost: "Bukan data terkini.",
+    empty: "Belum ada aksi korporasi untuk saham kamu dalam 30 hari terakhir atau 60 hari ke depan",
+    asOf: "per",
+    holdingsTitle: "Saham kamu",
+    holdingsDesc: "Jumlah dalam lembar (1 lot = 100 lembar).",
+    save: "Simpan",
+    saving: "Menyimpan…",
+    colTicker: "Saham",
+    colShares: "Lembar",
+    colAvgPrice: "Harga rata-rata (opsional)",
+    ariaTicker: "Saham",
+    ariaShares: "Jumlah lembar",
+    ariaAvgPrice: "Harga rata-rata",
+    removeRow: "Hapus baris",
+    addHolding: "Tambah saham",
+    errTicker: "Ticker harus 4 huruf, mis. BBCA.",
+    errShares: "Jumlah lembar harus bilangan bulat ≥ 1.",
+    errDuplicate: "Ticker ganda tidak diperbolehkan.",
+    savedToast: "Saham tersimpan",
+    loadFailed: "Gagal memuat saham",
+    saveFailed: "Gagal menyimpan saham",
+    checkFailed: "Pengecekan gagal",
+    timelineAria: "Linimasa",
+    today: "Hari ini",
+    inDays: (n) => `${n} hari lagi`,
+    ratio: "Rasio",
+    exercisePrice: "Harga pelaksanaan",
+    dividendPerShare: "Dividen per saham",
+    dilutionBefore: "Jika HMETD dibiarkan hangus, porsi kepemilikan turun",
+    dilutionAfter: ".",
+    scenariosHeading: "Tiga skenario (teoretis, sebelum biaya transaksi):",
+    scenarioExercise: "Ditebus semua",
+    scenarioSell: "HMETD dijual",
+    scenarioLapse: "Dibiarkan",
+    scenarioExerciseRest: (cost) => `bayar ${cost}, porsi kepemilikan tetap.`,
+    scenarioSellRest: (value, dilution) => `nilai teoretis ±${value}, porsi turun ${dilution}.`,
+    scenarioLapseRest: (deadline, value) => `hak hangus setelah ${deadline}, nilai teoretis hilang ${value}.`,
+    verify: "Yang perlu kamu cek",
+    cardDisclaimer: "Informasi edukatif, bukan rekomendasi investasi.",
+    disclaimer: "Informasi edukatif, bukan rekomendasi investasi. Verifikasi pada keterbukaan resmi IDX dan prospektus.",
+    sources: "Lihat sumber data",
+    sourcesTitle: "sumber data",
+    sourcesDesc: "Setiap angka dihitung oleh kode dari data Sectors — bukan oleh AI.",
+    figuresHeading: "Angka & rumus",
+    contextHeading: "Konteks",
+    fetched: "diambil",
+    rawHeading: "Data mentah aksi korporasi",
+    limitations: "Batasan: data kalender tidak memuat tanggal pengumuman; mode replay hanya memakai data sampai tanggal replay; nama pemegang saham utama berasal dari data kepemilikan terkini.",
+    tiles: {
+      right_issue: [
+        { key: "rights_entitled", label: "HMETD kamu" },
+        { key: "cost_to_exercise_all", label: "Dana untuk tebus semua" },
+        { key: "terp", label: "TERP (teoretis)" },
+        { key: "rights_value_total", label: "Nilai teoretis hak" },
+      ],
+      dividend: [
+        { key: "gross_dividend", label: "Dividen bruto kamu" },
+        { key: "yield_on_cost", label: "Yield on cost" },
+        { key: "days_to_cum", label: "Menuju tanggal cum" },
+      ],
+      warrant: [
+        { key: "intrinsic_per_warrant", label: "Nilai intrinsik / waran" },
+        { key: "days_to_deadline", label: "Menuju batas pelaksanaan" },
+      ],
+    },
+    timelineLabels: {
+      right_issue: [
+        { key: "cum_date", label: "Cum" },
+        { key: "ex_date", label: "Ex" },
+        { key: "recording_date", label: "Recording" },
+        { key: "trading_period_start", label: "Mulai perdagangan HMETD" },
+        { key: "trading_period_end", label: "Batas HMETD" },
+      ],
+      dividend: [
+        { key: "cum_date", label: "Cum" },
+        { key: "ex_date", label: "Ex" },
+        { key: "recording_date", label: "Recording" },
+        { key: "payment_date", label: "Pembayaran" },
+      ],
+      warrant: [
+        { key: "trading_period_start", label: "Mulai perdagangan" },
+        { key: "ex_per_start", label: "Mulai pelaksanaan" },
+        { key: "ex_per_end", label: "Akhir pelaksanaan" },
+        { key: "maturity_date", label: "Jatuh tempo" },
+      ],
+    },
+  },
+};

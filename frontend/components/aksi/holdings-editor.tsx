@@ -6,7 +6,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Holding } from "@/lib/aksi";
+import { copy, type AksiCopy, type Holding } from "@/lib/aksi";
 import { useAksiStore } from "@/lib/stores/aksi";
 
 type Row = { symbol: string; shares: string; avgPrice: string };
@@ -21,7 +21,7 @@ function toRows(holdings: Holding[]): Row[] {
     : [BLANK];
 }
 
-function parse(rows: Row[]): { holdings: Holding[]; error: string | null } {
+function parse(rows: Row[]): { holdings: Holding[]; errorKey: keyof Pick<AksiCopy, "errTicker" | "errShares" | "errDuplicate"> | null } {
   const holdings = rows
     .filter((r) => r.symbol.trim() || r.shares.trim())
     .map((r) => ({
@@ -29,17 +29,20 @@ function parse(rows: Row[]): { holdings: Holding[]; error: string | null } {
       shares: Number(r.shares),
       avg_price: r.avgPrice.trim() ? Number(r.avgPrice) : null,
     }));
-  if (holdings.some((h) => !SYMBOL_RE.test(h.symbol))) return { holdings, error: "Ticker must be 4 letters, e.g. BBCA." };
-  if (holdings.some((h) => !Number.isInteger(h.shares) || h.shares < 1)) return { holdings, error: "Shares must be a whole number ≥ 1." };
-  if (new Set(holdings.map((h) => h.symbol)).size !== holdings.length) return { holdings, error: "Duplicate tickers are not allowed." };
-  return { holdings, error: null };
+  if (holdings.some((h) => !SYMBOL_RE.test(h.symbol))) return { holdings, errorKey: "errTicker" };
+  if (holdings.some((h) => !Number.isInteger(h.shares) || h.shares < 1)) return { holdings, errorKey: "errShares" };
+  if (new Set(holdings.map((h) => h.symbol)).size !== holdings.length) return { holdings, errorKey: "errDuplicate" };
+  return { holdings, errorKey: null };
 }
 
 export function HoldingsEditor({ initial }: { initial: Holding[] }) {
   const [rows, setRows] = useState<Row[]>(() => toRows(initial));
   const [saving, setSaving] = useState(false);
   const running = useAksiStore((s) => s.running);
-  const { holdings, error } = parse(rows);
+  const lang = useAksiStore((s) => s.lang);
+  const t = copy[lang];
+  const { holdings, errorKey } = parse(rows);
+  const error = errorKey ? t[errorKey] : null;
   const normalizedInitial = initial.map((h) => ({ symbol: h.symbol, shares: h.shares, avg_price: h.avg_price ?? null }));
   const dirty = JSON.stringify(holdings) !== JSON.stringify(normalizedInitial);
 
@@ -50,36 +53,36 @@ export function HoldingsEditor({ initial }: { initial: Holding[] }) {
     setSaving(true);
     const ok = await useAksiStore.getState().saveHoldings(holdings);
     setSaving(false);
-    if (ok) toast.success("Holdings saved");
+    if (ok) toast.success(t.savedToast);
   };
 
   return (
     <section className="rounded-xl border border-border bg-card">
       <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
         <div>
-          <h2 className="text-sm font-medium tracking-tight">Your holdings</h2>
-          <p className="text-xs text-muted-foreground">Share counts in shares (1 lot = 100 shares).</p>
+          <h2 className="text-sm font-medium tracking-tight">{t.holdingsTitle}</h2>
+          <p className="text-xs text-muted-foreground">{t.holdingsDesc}</p>
         </div>
         <Button size="sm" variant="secondary" disabled={!dirty || !!error || saving || running} onClick={save}>
-          {saving ? "Saving…" : "Save"}
+          {saving ? t.saving : t.save}
         </Button>
       </header>
       <div className="space-y-2 px-4 py-3">
         <div className={`${COLS} text-xs text-muted-foreground`}>
-          <span>Ticker</span>
-          <span>Shares</span>
-          <span>Avg price (optional)</span>
+          <span>{t.colTicker}</span>
+          <span>{t.colShares}</span>
+          <span>{t.colAvgPrice}</span>
           <span />
         </div>
         {rows.map((r, i) => (
           <div key={i} className={COLS}>
-            <Input aria-label="Ticker" value={r.symbol} maxLength={7} placeholder="BBCA"
+            <Input aria-label={t.ariaTicker} value={r.symbol} maxLength={7} placeholder="BBCA"
               className="font-mono uppercase" onChange={(e) => update(i, { symbol: e.target.value })} />
-            <Input aria-label="Shares" inputMode="numeric" value={r.shares} placeholder="1000"
+            <Input aria-label={t.ariaShares} inputMode="numeric" value={r.shares} placeholder="1000"
               className="font-mono" onChange={(e) => update(i, { shares: e.target.value.replace(/[^\d]/g, "") })} />
-            <Input aria-label="Average price" inputMode="decimal" value={r.avgPrice} placeholder="—"
+            <Input aria-label={t.ariaAvgPrice} inputMode="decimal" value={r.avgPrice} placeholder="—"
               className="font-mono" onChange={(e) => update(i, { avgPrice: e.target.value.replace(/[^\d.]/g, "") })} />
-            <Button size="icon-sm" variant="ghost" aria-label="Remove row"
+            <Button size="icon-sm" variant="ghost" aria-label={t.removeRow}
               onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((_, j) => j !== i) : [BLANK]))}>
               <Trash2Icon className="size-4" />
             </Button>
@@ -88,7 +91,7 @@ export function HoldingsEditor({ initial }: { initial: Holding[] }) {
         <div className="flex items-center justify-between gap-3">
           <Button size="sm" variant="ghost" disabled={rows.length >= 30} onClick={() => setRows((rs) => [...rs, BLANK])}>
             <PlusIcon className="size-4" />
-            Add holding
+            {t.addHolding}
           </Button>
           {error && <p className="text-xs text-destructive">{error}</p>}
         </div>
