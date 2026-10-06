@@ -50,6 +50,23 @@ async def test_graph_processes_every_event(db, user, monkeypatch):
     assert types.count("event_found") == 2 and types.count("numbers") == 2
     assert types.count("brief") == 2 and "budget" in types
 
+    # SSE contract shapes: payloads are spread, not nested.
+    found_data = [d for t, d in emitted if t == "event_found"]
+    assert found_data[0]["event_id"] == "BBMD:dividend:2025-07-14"
+    assert found_data[0]["symbol"] == "BBMD" and "event" not in found_data[0]
+    findings_data = [d for t, d in emitted
+                     if t == "finding" and d["event_id"] == "WIFI:right_issue:2025-07-02"]
+    assert [f["id"] for f in findings_data] == [
+        "controller_change", "price_vs_exercise", "ownership_shift"]
+    briefs_data = [d for t, d in emitted if t == "brief"]
+    assert "summary_id" in briefs_data[0] and "brief" not in briefs_data[0]
+    steps = [d for t, d in emitted if t == "step"]
+    assert steps[0] == {"node": "scan"}
+    assert {s["node"] for s in steps} == {
+        "scan", "load_pack", "calculate", "investigate", "brief"}
+    calls = [d for t, d in emitted if t == "tool" and d.get("status") == "call"]
+    assert all("args" in d for d in calls) and len(calls) == 6
+
     dividend, rights = final["results"]
     assert dividend["figures"]["gross_dividend"]["value"] == 171250
     assert dividend["brief"]["gate"]["template"] is True  # rights-issue draft doesn't fit

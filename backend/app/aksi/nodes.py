@@ -61,25 +61,38 @@ async def emit_tool(config, name: str, status: str, **extra) -> None:
     await emit(config, "tool", {"name": name, "status": status, **extra})
 
 
-async def _pack_source(key: str, symbol: str, as_of: date) -> dict:
+def _pack_args(key: str, symbol: str, as_of: date) -> dict:
+    """Tool-style args for a pack read — also the args in the SSE tool event."""
     if key == "prices":
-        return await sources.daily_prices(
-            symbol, (as_of - timedelta(days=89)).isoformat(), as_of.isoformat())
+        return {"symbol": symbol, "start": (as_of - timedelta(days=89)).isoformat(),
+                "end": as_of.isoformat()}
     if key == "filings":
-        return await sources.insider_filings(
-            symbol, (as_of - timedelta(days=45)).isoformat(), as_of.isoformat())
+        return {"symbol": symbol, "start": (as_of - timedelta(days=45)).isoformat(),
+                "end": as_of.isoformat()}
     if key == "shareholders":
-        return await sources.shareholders(symbol, as_of.year)
-    if key == "ownership":
-        return await sources.company_report(symbol, ["ownership"])
-    return {}
+        return {"symbol": symbol, "year": as_of.year}
+    return {"symbol": symbol, "sections": ["ownership"]}
+
+
+_PACK_FETCH = {
+    "prices": sources.daily_prices,
+    "filings": sources.insider_filings,
+    "shareholders": sources.shareholders,
+    "ownership": sources.company_report,
+}
+
+
+def _step(node: str, ev: dict | None = None) -> dict:
+    return {"node": node, **({"event_id": ev["id"]} if ev else {})}
 
 
 async def scan(state: dict, config) -> dict:
+    await emit(config, "step", _step("scan"))
     as_of = date.fromisoformat(state["as_of"])
     start, end = events.scan_window(as_of)
 
-    await emit_tool(config, "sectors_corporate_actions", "call")
+    args = {"types": events.KINDS, "start": start, "end": end}
+    await emit_tool(config, "sectors_corporate_actions", "call", args=args)
     env = await sources.calendar(events.KINDS, start, end)
     await emit_tool(config, "sectors_corporate_actions",
                     "done" if env.get("status") == 200 else "error")
@@ -88,20 +101,21 @@ async def scan(state: dict, config) -> dict:
     calendar = env.get("data") if env.get("status") == 200 else {}
     picked = events.normalize(calendar or {}, state["holdings"], as_of)
     for ev in picked:
-        await emit(config, "event_found", {"event": events.public(ev)})
+        await emit(config, "event_found", events.public(ev))
     return {"events": picked, "cursor": 0,
             "credits_used": state["credits_used"] + spent}
 
 
 async def load_pack(state: dict, config) -> dict:
     ev = state["events"][state["cursor"]]
+    await emit(config, "step", _step("load_pack", ev))
     as_of = date.fromisoformat(state["as_of"])
     pack: dict[str, dict] = {}
     spent = 0
     for key in PACK.get(ev["kind"], ()):
         name = _PACK_TOOL[key]
-        await emit_tool(config, name, "call")
-        pack[key] = await _pack_source(key, ev["symbol"], as_of)
+        await emit_tool(config, name, "call", args=_pack_args(key, ev["symbol"], as_of))
+        pack[key] = await _PACK_FETCH[key](**_pack_args(key, ev["symbol"], as_of))
         spent += 1 if pack[key].get("source") == "upstream" else 0
         await emit_tool(config, name, "done" if pack[key].get("status") == 200 else "error")
     return {"work": {"event": ev, "pack": pack},
@@ -111,6 +125,7 @@ async def load_pack(state: dict, config) -> dict:
 async def calculate(state: dict, config) -> dict:
     work = state["work"]
     ev = work["event"]
+    await emit(config, "step", _step("calculate", ev))
     as_of = date.fromisoformat(state["as_of"])
     price_rows = findings.rows(work["pack"].get("prices"))
     figs = calc.figures_for(ev, price_rows, as_of)
@@ -121,6 +136,7 @@ async def calculate(state: dict, config) -> dict:
 async def investigate(state: dict, config) -> dict:
     work = state["work"]
     ev, pack = work["event"], work["pack"]
+    await emit(config, "step", _step("investigate", ev))
     as_of = date.fromisoformat(state["as_of"])
     extra: list[dict] = []
     spent = 0
@@ -177,8 +193,11 @@ async def investigate(state: dict, config) -> dict:
 async def brief(state: dict, config) -> dict:
     work = state["work"]
     ev, figs, found = work["event"], work["figures"], work.get("findings", [])
+    await emit(config, "step", _step("brief", ev))
+    for f in found:
+        await emit(config, "finding", {"event_id": ev["id"], **findings.public(f)})
     result = await briefs.produce(ev, figs, found)
-    await emit(config, "brief", {"event_id": ev["id"], "brief": result})
+    await emit(config, "brief", {"event_id": ev["id"], **result})
     saved = {"event": events.public(ev), "figures": figs,
              "findings": [findings.public(f) for f in found], "brief": result}
     await store.append_event(state["report_id"], saved, state["credits_used"])
