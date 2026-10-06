@@ -60,8 +60,6 @@ services:
       - backend
 
 volumes:
-  # Pre-existing volume created by the old backend/ compose file — thread/user
-  # data carries over untouched.
   pgdata:
     external: true
     name: backend_pgdata

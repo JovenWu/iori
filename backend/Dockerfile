@@ -15,5 +15,5 @@ COPY . .
 EXPOSE 8000
 
 # Migrate, then serve. Plain uvicorn is fine here — the Windows selector-loop
-# shim in run.py is only needed on a Windows host, not in the container.
+# shim in app/main.py is only needed on a Windows host, not in the container.
 CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
