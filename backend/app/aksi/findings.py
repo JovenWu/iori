@@ -169,6 +169,19 @@ def _with_extra(envelope: Any, extra: list[dict], tool: str) -> Any:
     return base
 
 
+def public(f: dict) -> dict:
+    """SSE/report shape for a finding."""
+    return {k: f.get(k) for k in
+            ("id", "kind", "text_id", "text_en", "values", "source_tool", "fetched_at")}
+
+
+def needs_investigation(found: list[dict]) -> bool:
+    """Thin context → let the investigate loop try to pull more (budget permitting)."""
+    if not found:
+        return True
+    return any((f.get("values") or {}).get("count") == 0 for f in found)
+
+
 def extract(ev: dict, pack: dict, extra: list[dict], as_of: date) -> list[dict]:
     kind = ev["kind"]
     if kind == "right_issue":
