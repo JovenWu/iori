@@ -17,3 +17,10 @@
 - After making code changes, always invoke `/code-simplifier` to audit and refine them before finishing.
 - Design rules live in `DESIGN.md`; product intent in `PRODUCT.md`.
 - Dark canvas + lavender accent; no bright/yellow accents; dark-first theming.
+
+## Active feature — Aksi Korporasi Copilot (phase 14)
+
+- Spec: `docs/superpowers/specs/2026-10-06-aksi-korporasi-design.md`. Plan: `docs/superpowers/plans/2026-10-06-aksi-korporasi.md` — the plan wins where they differ. Build from these only; other idea notes in `docs/` are superseded.
+- Never output buy/sell/hold/exercise advice (POJK 6/2026). Every number comes from `backend/app/aksi/calc.py`; the LLM writes placeholders only.
+- Sectors credits are scarce: tests mock `app.sectors.client.get`; aksi code never passes `refresh=True`.
+- The backend container runs Python 3.10.
