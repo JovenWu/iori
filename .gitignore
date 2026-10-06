@@ -30,3 +30,9 @@ nul
 # App artifacts
 uploads/
 *.log
+
+# Local chart playground (not part of the app)
+frontend/app/chart-gallery/
+
+# Local agent working state
+.superpowers/
