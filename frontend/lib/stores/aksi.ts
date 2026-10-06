@@ -4,7 +4,8 @@ import { create } from "zustand";
 import { toast } from "sonner";
 
 import type { ToolActivity } from "@/components/agent-status";
-import { copy, type AksiEvent, type Brief, type Finding, type Holding, type Lang, type PublicEvent, type Report } from "@/lib/aksi";
+import { copy, type AksiEvent, type Brief, type Finding, type Holding, type PublicEvent, type Report } from "@/lib/aksi";
+import { loadSettings } from "@/lib/settings";
 import {
   ApiError,
   getHoldings,
@@ -40,12 +41,9 @@ interface AksiStore {
   order: string[];
   /** Live events whose next deadline is ≤ 7 days away — sidebar badge. */
   urgentCount: number;
-  /** Display language for chrome + brief content. */
-  lang: Lang;
   loadHoldings: () => Promise<void>;
   saveHoldings: (holdings: Holding[]) => Promise<boolean>;
   setMode: (mode: Mode) => void;
-  setLang: (lang: Lang) => void;
   setAsOf: (day: string) => void;
   loadLatest: (mode?: Mode) => Promise<void>;
   refreshBadge: () => Promise<void>;
@@ -122,7 +120,6 @@ export const useAksiStore = create<AksiStore>()((set, get) => {
     events: {},
     order: [],
     urgentCount: 0,
-    lang: "en",
 
     loadHoldings: async () => {
       try {
@@ -130,7 +127,7 @@ export const useAksiStore = create<AksiStore>()((set, get) => {
         set((s) => ({ holdings, holdingsLoaded: true, holdingsVersion: s.holdingsVersion + 1 }));
       } catch {
         set({ holdingsLoaded: true });
-        toast.error(copy[get().lang].loadFailed);
+        toast.error(copy[loadSettings().language].loadFailed);
       }
     },
 
@@ -140,7 +137,7 @@ export const useAksiStore = create<AksiStore>()((set, get) => {
         set((s) => ({ holdings: saved.holdings, holdingsVersion: s.holdingsVersion + 1 }));
         return true;
       } catch (err) {
-        toast.error(err instanceof ApiError ? err.message : copy[get().lang].saveFailed);
+        toast.error(err instanceof ApiError ? err.message : copy[loadSettings().language].saveFailed);
         return false;
       }
     },
@@ -152,8 +149,6 @@ export const useAksiStore = create<AksiStore>()((set, get) => {
     },
 
     setAsOf: (day) => set({ asOf: day }),
-
-    setLang: (lang) => set({ lang }),
 
     loadLatest: async (mode) => {
       try {
@@ -248,7 +243,7 @@ export const useAksiStore = create<AksiStore>()((set, get) => {
           if ((err as Error).name !== "AbortError") {
             settle("error");
             set({ failed: true });
-            toast.error(err instanceof ApiError ? err.message : copy[get().lang].checkFailed);
+            toast.error(err instanceof ApiError ? err.message : copy[loadSettings().language].checkFailed);
           }
         } finally {
           if (controller === ctrl) controller = null;

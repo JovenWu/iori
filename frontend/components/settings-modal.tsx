@@ -39,7 +39,7 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/lib/auth"
-import { useSettings, type ThemePreference } from "@/lib/settings"
+import { useSettings, type LanguagePreference, type ThemePreference } from "@/lib/settings"
 
 type SettingsSection =
   | "general"
@@ -78,7 +78,10 @@ const THEME_OPTIONS: {
   { value: "system", label: "System", icon: MonitorIcon },
 ]
 
-const LANGUAGES = [{ value: "en", label: "English" }]
+const LANGUAGES: { value: LanguagePreference; label: string }[] = [
+  { value: "en", label: "English" },
+  { value: "id", label: "Indonesia" },
+]
 
 function SettingRow({
   title,
@@ -165,7 +168,7 @@ function LanguageSelect() {
                   key={language.value}
                   value={language.value}
                   onSelect={(value) => {
-                    updateSettings({ language: value })
+                    updateSettings({ language: value as LanguagePreference })
                     setOpen(false)
                   }}
                 >
@@ -293,7 +296,7 @@ export function SettingsModal({
                 <>
                   <SettingRow
                     title="Language"
-                    description="The demo build ships English only."
+                    description="Assistant replies and the Corporate Actions page use this language."
                   >
                     <LanguageSelect />
                   </SettingRow>

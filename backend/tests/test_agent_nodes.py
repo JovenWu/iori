@@ -55,6 +55,16 @@ async def test_data_and_unknown_workflows_use_full_toolset(monkeypatch):
     toolless.ainvoke.assert_not_awaited()
 
 
+def test_compose_system_honours_reply_language_setting():
+    state = _state("")
+    id_prompt = nodes._compose_system(state, {"configurable": {"lang": "id"}})
+    assert "Bahasa Indonesia" in id_prompt
+    en_prompt = nodes._compose_system(state, {"configurable": {"lang": "en"}})
+    assert "English" in en_prompt
+    default_prompt = nodes._compose_system(state, {"configurable": {}})
+    assert "English" in default_prompt
+
+
 def test_general_runnable_is_unbound_and_toolset_includes_new_tools():
     # `general` must never see tool schemas — the runnable is the bare model.
     assert nodes._LLM_BY_WORKFLOW["general"] is nodes._agent_base

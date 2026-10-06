@@ -56,6 +56,19 @@ _WORKFLOW_HINTS = {
     ),
 }
 
+# App language setting → reply language. The setting wins over system.md's
+# default "match the user's message" rule.
+_LANG_HINTS = {
+    "id": (
+        "The user's app language is Indonesian — reply in Bahasa Indonesia, "
+        "overriding the default rule to match the language of their message."
+    ),
+    "en": (
+        "The user's app language is English — reply in English, overriding "
+        "the default rule to match the language of their message."
+    ),
+}
+
 # Reasoning-capable models get a streamed thinking summary when an effort
 # is configured; `reasoning=None` keeps the plain chat-completions path.
 _reasoning = (
@@ -74,9 +87,12 @@ agent_llm = _agent_base.bind_tools(AGENT_TOOLS)
 _LLM_BY_WORKFLOW = {"general": _agent_base}
 
 
-def _compose_system(state: ChatState) -> str:
+def _compose_system(state: ChatState, config: RunnableConfig) -> str:
     now = datetime.now(_WIB).isoformat(timespec="seconds")
     parts = [_SYSTEM_PROMPT, f"Current time: {now} (Asia/Jakarta, WIB)."]
+    lang = (config.get("configurable") or {}).get("lang")
+    if hint := _LANG_HINTS.get(str(lang or "en")):
+        parts.append(hint)
     if hint := _WORKFLOW_HINTS.get(state.get("workflow", "")):
         parts.append(hint)
     if state.get("summary"):
@@ -92,6 +108,6 @@ async def agent(state: ChatState, config: RunnableConfig) -> dict:
     active = state["messages"][state.get("summarized_upto", 0) :]
     llm = _LLM_BY_WORKFLOW.get(state.get("workflow") or "", agent_llm)
     response = await llm.ainvoke(
-        [SystemMessage(content=_compose_system(state)), *active], config
+        [SystemMessage(content=_compose_system(state, config)), *active], config
     )
     return {"messages": [response]}

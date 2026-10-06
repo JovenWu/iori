@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 class ChatStreamRequest(BaseModel):
     thread_id: uuid.UUID | None = None
     message: str = Field(min_length=1, max_length=8000)
+    # App language setting — drives the reply language in the system prompt.
+    lang: Literal["en", "id"] = "en"
 
 
 class ThreadUpdateRequest(BaseModel):

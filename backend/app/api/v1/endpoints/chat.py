@@ -53,7 +53,7 @@ async def chat_stream(
         except RunLimitError as exc:
             raise HTTPException(status_code=429, detail=str(exc))
         run.task = asyncio.create_task(
-            service.run_turn(run, current_user.id, tid, body.message)
+            service.run_turn(run, current_user.id, tid, body.message, body.lang)
         )
         # Buffered — subscribers replay it; lets clients stop a fresh thread's
         # first run before done/stopped carries the id. started_at anchors the

@@ -10,6 +10,7 @@ import {
 } from "react"
 
 export type ThemePreference = "light" | "dark" | "system"
+export type LanguagePreference = "en" | "id"
 
 export interface AppSettings {
   theme: ThemePreference
@@ -19,8 +20,8 @@ export interface AppSettings {
   notifyOnDone: boolean
   /** Let the assistant store long-term memories between conversations. */
   memoryEnabled: boolean
-  /** UI language — demo build ships English only. */
-  language: string
+  /** Reply language (chat) + Corporate Actions page language. */
+  language: LanguagePreference
 }
 
 const STORAGE_KEY = "sectors-agent:settings"

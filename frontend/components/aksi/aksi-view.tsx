@@ -9,17 +9,19 @@ import { HoldingsEditor } from "@/components/aksi/holdings-editor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { type Lang, copy, formatDate, todayIso } from "@/lib/aksi";
+import { copy, formatDate, todayIso } from "@/lib/aksi";
+import { useSettings } from "@/lib/settings";
 import { useAksiStore } from "@/lib/stores/aksi";
 import { cn } from "@/lib/utils";
 
 function LangToggle() {
-  const lang = useAksiStore((s) => s.lang);
+  const { settings, updateSettings } = useSettings();
+  const lang = settings.language;
   return (
     <div className="flex rounded-md border border-border text-xs" role="group" aria-label={copy[lang].langAria}>
-      {(["en", "id"] as const).map((l: Lang) => (
+      {(["en", "id"] as const).map((l) => (
         <button key={l} type="button" aria-pressed={lang === l}
-          onClick={() => useAksiStore.getState().setLang(l)}
+          onClick={() => updateSettings({ language: l })}
           className={cn("px-2 py-1 font-mono uppercase transition-colors", lang === l ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")}>
           {l}
         </button>
@@ -32,7 +34,7 @@ function ModeToggle() {
   const mode = useAksiStore((s) => s.mode);
   const asOf = useAksiStore((s) => s.asOf);
   const running = useAksiStore((s) => s.running);
-  const lang = useAksiStore((s) => s.lang);
+  const lang = useSettings().settings.language;
   const t = copy[lang];
   return (
     <div className="flex items-center gap-2">
@@ -70,7 +72,7 @@ export function AksiView() {
   const reportAsOf = useAksiStore((s) => s.reportAsOf);
   const order = useAksiStore((s) => s.order);
   const events = useAksiStore((s) => s.events);
-  const lang = useAksiStore((s) => s.lang);
+  const lang = useSettings().settings.language;
   const t = copy[lang];
 
   useEffect(() => {

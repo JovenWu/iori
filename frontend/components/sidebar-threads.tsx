@@ -28,6 +28,7 @@ import { ThreadActionsMenu } from "@/components/thread-actions-menu";
 import { ThreadActionDialogs } from "@/components/thread-action-dialogs";
 import { useThreadActions } from "@/hooks/use-thread-actions";
 import { copy } from "@/lib/aksi";
+import { useSettings } from "@/lib/settings";
 import { useAksiStore } from "@/lib/stores/aksi";
 import { useChatStore } from "@/lib/stores/chat";
 import {
@@ -117,7 +118,7 @@ export function SidebarThreads() {
   }, []);
 
   const urgentCount = useAksiStore((s) => s.urgentCount);
-  const aksiLabel = copy[useAksiStore((s) => s.lang)].sidebarLabel;
+  const aksiLabel = copy[useSettings().settings.language].sidebarLabel;
   useEffect(() => {
     void useAksiStore.getState().refreshBadge();
   }, []);

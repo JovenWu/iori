@@ -263,14 +263,16 @@ async def get_thread_messages(thread_id: str | uuid.UUID) -> list[dict]:
 
 
 async def run_turn(
-    run: AgentRun, user_id: int, thread_id: str, user_msg: str
+    run: AgentRun, user_id: int, thread_id: str, user_msg: str, lang: str = "en"
 ) -> None:
     """Stream the graph for one turn into `run`'s buffer. Never raises."""
     # Title runs concurrently — independent of the answer and usually
     # committed before the stream closes.
     asyncio.create_task(_ensure_title(user_id, thread_id, user_msg))
     graph = get_graph()
-    config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
+    config = {
+        "configurable": {"thread_id": thread_id, "user_id": user_id, "lang": lang}
+    }
     accumulated = ""
     final_answer = ""
     try:

@@ -12,10 +12,10 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { type AksiEvent, copy, formatDate, formatFigure } from "@/lib/aksi";
-import { useAksiStore } from "@/lib/stores/aksi";
+import { useSettings } from "@/lib/settings";
 
 export function EvidenceDrawer({ event }: { event: AksiEvent }) {
-  const lang = useAksiStore((s) => s.lang);
+  const lang = useSettings().settings.language;
   const t = copy[lang];
   const figures = Object.values(event.figures ?? {});
   return (

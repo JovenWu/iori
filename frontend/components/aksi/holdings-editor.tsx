@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { copy, type AksiCopy, type Holding } from "@/lib/aksi";
+import { useSettings } from "@/lib/settings";
 import { useAksiStore } from "@/lib/stores/aksi";
 
 type Row = { symbol: string; shares: string; avgPrice: string };
@@ -39,7 +40,7 @@ export function HoldingsEditor({ initial }: { initial: Holding[] }) {
   const [rows, setRows] = useState<Row[]>(() => toRows(initial));
   const [saving, setSaving] = useState(false);
   const running = useAksiStore((s) => s.running);
-  const lang = useAksiStore((s) => s.lang);
+  const lang = useSettings().settings.language;
   const t = copy[lang];
   const { holdings, errorKey } = parse(rows);
   const error = errorKey ? t[errorKey] : null;

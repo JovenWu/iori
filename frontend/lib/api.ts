@@ -267,8 +267,9 @@ export function streamChat(
   message: string,
   threadId: string | null,
   signal?: AbortSignal,
+  lang?: string,
 ): AsyncGenerator<StreamEvent> {
-  return streamSSE<StreamEvent>("/chat/stream", { message, thread_id: threadId }, signal);
+  return streamSSE<StreamEvent>("/chat/stream", { message, thread_id: threadId, lang }, signal);
 }
 
 export const getHoldings = () => apiFetch<{ holdings: Holding[] }>("/aksi/holdings");

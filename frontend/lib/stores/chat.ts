@@ -13,6 +13,7 @@ import {
   updateThread,
   type ChatMessage,
 } from "@/lib/api";
+import { loadSettings } from "@/lib/settings";
 import { detailFor, verbFor } from "@/lib/tool-labels";
 import { useThreadsStore } from "@/lib/stores/threads";
 
@@ -203,6 +204,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         text,
         get().threadId,
         run.controller.signal,
+        loadSettings().language,
       )) {
         const data = ev.data as Record<string, string>;
         switch (ev.type) {

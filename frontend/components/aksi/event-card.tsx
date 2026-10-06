@@ -11,7 +11,7 @@ import {
   formatFigure,
   formatIdr,
 } from "@/lib/aksi";
-import { useAksiStore } from "@/lib/stores/aksi";
+import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 
 function num(v: unknown): number | null {
@@ -165,7 +165,7 @@ function BriefBlock({ event, lang }: { event: AksiEvent; lang: Lang }) {
 }
 
 export function EventCard({ event, asOf }: { event: AksiEvent; asOf: string | null }) {
-  const lang = useAksiStore((s) => s.lang);
+  const lang = useSettings().settings.language;
   const t = copy[lang];
   return (
     <article className="divide-y divide-border rounded-xl border border-border bg-card">
