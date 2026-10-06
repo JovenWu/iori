@@ -29,6 +29,11 @@ WORKFLOWS: dict[str, str] = {
         "due-diligence questions that need several data pulls before an "
         "answer can be synthesized."
     ),
+    "corporate_actions": (
+        "Questions about what a stock's corporate actions — rights issues "
+        "(HMETD), dividends, warrants — mean for the user's own shares: "
+        "entitlement, cost, dilution, deadlines."
+    ),
 }
 
 _DEFAULT = "general"

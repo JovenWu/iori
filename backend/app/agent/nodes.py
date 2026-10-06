@@ -46,6 +46,14 @@ _WORKFLOW_HINTS = {
         "synthesize: headline answer, evidence, risks, and what the data "
         "doesn't cover. Cite fetched_at for the figures quoted."
     ),
+    "corporate_actions": (
+        "The user asks what a corporate action means for their shares. Call "
+        "aksi_impact with the ticker and share count (ask for the share count "
+        "if missing; 1 lot = 100 shares) and quote its figures and dates — "
+        "never compute them yourself. Present neutral scenarios (if exercised / "
+        "if sold / if left alone); never advise buying, selling, holding or "
+        "exercising. End with: 'Informasi edukatif, bukan rekomendasi investasi.'"
+    ),
 }
 
 # Reasoning-capable models get a streamed thinking summary when an effort

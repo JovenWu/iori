@@ -16,6 +16,7 @@ from langgraph.prebuilt import ToolNode
 
 from app.agent.compute import compute
 from app.agent.state import ChatState
+from app.aksi.tools import aksi_impact
 from app.sectors.charts import judge_and_extract
 from app.sectors.tools import TOOLS
 
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Everything the agent can call — sectors tools plus local helpers. `nodes`
 # decides which subset a workflow sees; the executor must accept all of them.
-AGENT_TOOLS = [*TOOLS, compute]
+AGENT_TOOLS = [*TOOLS, compute, aksi_impact]
 
 _tool_node = ToolNode(AGENT_TOOLS)
 
