@@ -8,11 +8,13 @@ import {
   SidebarGroupContent,
   SidebarMenu,
   SidebarMenuAction,
+  SidebarMenuBadge,
   SidebarMenuItem,
   SidebarMenuButton,
 } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  CalendarClockIcon,
   ChevronRightIcon,
   HistoryIcon,
   Loader2Icon,
@@ -25,6 +27,7 @@ import { markdownToPlainText } from "@/lib/markdown";
 import { ThreadActionsMenu } from "@/components/thread-actions-menu";
 import { ThreadActionDialogs } from "@/components/thread-action-dialogs";
 import { useThreadActions } from "@/hooks/use-thread-actions";
+import { useAksiStore } from "@/lib/stores/aksi";
 import { useChatStore } from "@/lib/stores/chat";
 import {
   getTimestamp,
@@ -112,6 +115,11 @@ export function SidebarThreads() {
     useThreadsStore.getState().init();
   }, []);
 
+  const urgentCount = useAksiStore((s) => s.urgentCount);
+  useEffect(() => {
+    void useAksiStore.getState().refreshBadge();
+  }, []);
+
   const threadActions = useThreadActions();
 
   // Starred threads pin to Favorites, oldest first so positions stay stable;
@@ -168,6 +176,24 @@ export function SidebarThreads() {
                 </span>
               </Link>
             </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              tooltip="Aksi Korporasi"
+              isActive={pathname === "/aksi"}
+              className="h-10 px-4"
+            >
+              <Link href="/aksi">
+                <CalendarClockIcon />
+                <span className="group-data-[collapsible=icon]:hidden">
+                  Aksi Korporasi
+                </span>
+              </Link>
+            </SidebarMenuButton>
+            {urgentCount > 0 && (
+              <SidebarMenuBadge className="font-mono">{urgentCount}</SidebarMenuBadge>
+            )}
           </SidebarMenuItem>
         </SidebarMenu>
 
