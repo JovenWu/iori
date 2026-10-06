@@ -86,6 +86,18 @@ def _step(node: str, ev: dict | None = None) -> dict:
     return {"node": node, **({"event_id": ev["id"]} if ev else {})}
 
 
+def _clamp(args: dict, as_of: date) -> dict:
+    """Anti-lookahead for replays: no tool window may end after `as_of`, and
+    `refresh` is never forwarded (the aksi pipeline reads through the cache)."""
+    out = dict(args)
+    if out.get("end") and str(out["end"])[:10] > as_of.isoformat():
+        out["end"] = as_of.isoformat()
+    if isinstance(out.get("year"), int) and out["year"] > as_of.year:
+        out["year"] = as_of.year
+    out.pop("refresh", None)
+    return out
+
+
 async def scan(state: dict, config) -> dict:
     await emit(config, "step", _step("scan"))
     as_of = date.fromisoformat(state["as_of"])
@@ -173,12 +185,13 @@ async def investigate(state: dict, config) -> dict:
                 messages.append(ToolMessage(content="budget exhausted",
                                             tool_call_id=call["id"]))
                 continue
-            await emit_tool(config, call["name"], "call", args=call["args"])
-            out = await tool.ainvoke(call["args"])
+            args = _clamp(call.get("args") or {}, as_of)
+            await emit_tool(config, call["name"], "call", args=args)
+            out = await tool.ainvoke(args)
             envelope = json.loads(out) if isinstance(out, str) else out
-            spent += budget.cost(call["name"], call["args"], envelope)
+            spent += budget.cost(call["name"], args, envelope)
             calls += 1
-            extra.append({"tool": call["name"], "envelope": envelope})
+            extra.append({"tool": call["name"], "args": args, "envelope": envelope})
             await emit_tool(config, call["name"],
                             "done" if envelope.get("status") == 200 else "error",
                             source=envelope.get("source"))

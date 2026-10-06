@@ -5,8 +5,9 @@ from datetime import date
 
 import pytest
 import pytest_asyncio
+from langchain_core.messages import AIMessage
 
-from app.aksi import sources, store
+from app.aksi import nodes, sources, store
 from app.aksi.graph import RECURSION_LIMIT, aksi_graph
 from app.sectors import tools as st
 from tests import aksi_fixtures as fx
@@ -97,3 +98,57 @@ async def test_sources_share_cache_entries_with_tools(db, monkeypatch):
         {"symbol": "WIFI", "start": "2025-04-12", "end": "2025-07-10"}))
     assert raw["source"] == "upstream" and out["source"] == "hit"
     assert calls == ["/v2/daily/WIFI/"]
+
+
+class _RogueInvestigator:
+    """Asks for a lookahead window, a future year and a forced refresh."""
+
+    def __init__(self):
+        self.replies = 0
+
+    async def ainvoke(self, messages, config=None):
+        self.replies += 1
+        if self.replies > 1:
+            return AIMessage(content="enough context")
+        return AIMessage(content="", tool_calls=[
+            {"name": "sectors_daily_prices",
+             "args": {"symbol": "BBMD", "start": "2025-06-01",
+                      "end": "2025-12-31", "refresh": True},
+             "id": "call-prices"},
+            {"name": "sectors_shareholders",
+             "args": {"symbol": "BBMD", "year": 2030},
+             "id": "call-holders"},
+        ])
+
+
+class _SpyTool:
+    """Records the args it was invoked with; answers a cheap cache hit."""
+
+    def __init__(self, name: str):
+        self.name = name
+        self.seen: list[dict] = []
+
+    async def ainvoke(self, args):
+        self.seen.append(dict(args))
+        return json.dumps({"status": 200, "source": "hit", "data": []})
+
+
+async def test_investigate_clamps_tool_args_to_as_of(db, user, monkeypatch):
+    """Replay anti-lookahead: end/year are clamped to as_of, refresh dropped."""
+    fx.install_fakes(monkeypatch)
+    prices, holders = _SpyTool("sectors_daily_prices"), _SpyTool("sectors_shareholders")
+    monkeypatch.setitem(nodes.INVESTIGATE_TOOLS, "sectors_daily_prices", prices)
+    monkeypatch.setitem(nodes.INVESTIGATE_TOOLS, "sectors_shareholders", holders)
+    monkeypatch.setattr(nodes, "_investigator", _RogueInvestigator())
+
+    final, emitted, _ = await _run(user, HOLDINGS)
+
+    # BBMD's dividend has no findings → investigate runs; WIFI's are complete.
+    assert prices.seen == [{"symbol": "BBMD", "start": "2025-06-01",
+                            "end": "2025-07-10"}]
+    assert holders.seen == [{"symbol": "BBMD", "year": 2025}]
+    call_args = [d["args"] for t, d in emitted
+                 if t == "tool" and d.get("status") == "call"
+                 and d.get("args", {}).get("start") == "2025-06-01"]
+    assert call_args == prices.seen  # the emitted args are the clamped ones
+    assert final["credits_used"] == 9  # spy envelopes are cache hits — free
