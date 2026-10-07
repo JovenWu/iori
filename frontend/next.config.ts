@@ -6,6 +6,13 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   // Slim production image — frontend/Dockerfile runs .next/standalone.
   output: "standalone",
+  // Same-origin API: when the browser calls this server's /api/* (empty
+  // NEXT_PUBLIC_API_URL), proxy to the backend over the internal network.
+  // Evaluated at build time; API_INTERNAL_URL is a Docker build arg.
+  async rewrites() {
+    const api = process.env.API_INTERNAL_URL ?? "http://backend:8000";
+    return [{ source: "/api/:path*", destination: `${api}/api/:path*` }];
+  },
   // Docker Desktop mounts don't reliably deliver filesystem events to the
   // container, so Turbopack can miss edits. Poll instead — enabled only
   // where the env is set (compose), keeping host dev event-driven.

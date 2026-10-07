@@ -45,16 +45,19 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # Inlined at build time — this is the URL browsers will call.
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        # Same-origin API: empty string → browser calls /api/* on this server,
+        # rewrites() proxies to the internal backend (never host-published).
+        NEXT_PUBLIC_API_URL: ""
+        API_INTERNAL_URL: http://backend:8000
     container_name: iori-frontend
     restart: unless-stopped
+    # Loopback only — public exposure goes through the reverse proxy.
     ports:
-      - "${FRONTEND_BIND:-0.0.0.0}:3000:3000"
+      - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-3300}:3000"
     depends_on:
       - backend
 
 volumes:
   pgdata:
     external: true
-    name: backend_pgdata
+    name: iori_pgdata

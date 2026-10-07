@@ -11,10 +11,13 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# NEXT_PUBLIC_* vars are inlined at build time — the compose file passes the
-# public backend URL as a build arg.
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+# NEXT_PUBLIC_* vars are inlined at build time. Empty NEXT_PUBLIC_API_URL
+# makes the client call same-origin /api/*, which rewrites() in
+# next.config.ts proxies to API_INTERNAL_URL (the internal backend).
+ARG NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ARG API_INTERNAL_URL=http://backend:8000
+ENV API_INTERNAL_URL=$API_INTERNAL_URL
 RUN npm run build
 
 FROM node:24-alpine AS runner
