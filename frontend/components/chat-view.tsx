@@ -48,12 +48,18 @@ export function ChatView({ threadId }: { threadId: string | null }) {
   // The composer stays mounted through thread loads — disabled while history
   // is in flight so a send can't race the getThread message swap.
   const composer = (
-    <ChatInput
-      running={running}
-      disabled={loading}
-      onSend={(text) => useChatStore.getState().send(text)}
-      onStop={() => useChatStore.getState().stop()}
-    />
+    <>
+      <ChatInput
+        running={running}
+        disabled={loading}
+        onSend={(text) => useChatStore.getState().send(text)}
+        onStop={() => useChatStore.getState().stop()}
+      />
+      <p className="mt-1 text-center text-[11px] text-muted-foreground/70">
+        Sectors Agent can make mistakes — verify figures against official
+        IDX disclosures.
+      </p>
+    </>
   );
 
   return (
@@ -72,7 +78,7 @@ export function ChatView({ threadId }: { threadId: string | null }) {
             <div className="relative flex min-h-0 flex-1 flex-col">
               <ChatMessagesSkeleton />
             </div>
-            <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pb-4">
+            <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pb-3">
               {composer}
             </div>
           </>
@@ -100,7 +106,7 @@ export function ChatView({ threadId }: { threadId: string | null }) {
           </div>
           {/* z-10 keeps the composer + its focus ring painted above the fade
               strip even where they touch. */}
-          <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pb-4">
+          <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pb-3">
             {composer}
           </div>
         </>

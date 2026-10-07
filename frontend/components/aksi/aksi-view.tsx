@@ -191,9 +191,10 @@ export function AksiView() {
       <div className="flex min-h-0 flex-1">
         <HoldingsRail {...panelProps} />
 
-        <div className="min-w-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6">
-            <HoldingsStrip {...panelProps} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6">
+              <HoldingsStrip {...panelProps} />
 
             {reportMode === "replay" && reportAsOf && (
               <div className="rounded-lg border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
@@ -240,9 +241,12 @@ export function AksiView() {
                 {emptyText}
               </p>
             )}
-
-            <p className="text-xs text-muted-foreground">{t.disclaimer}</p>
+            </div>
           </div>
+
+          <footer className="shrink-0 px-4 py-2 text-center">
+            <p className="text-[11px] text-muted-foreground/70">{t.disclaimer}</p>
+          </footer>
         </div>
       </div>
 
