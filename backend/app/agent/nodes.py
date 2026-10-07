@@ -101,7 +101,9 @@ def _compose_system(state: ChatState, config: RunnableConfig) -> str:
     now = datetime.now(_WIB).isoformat(timespec="seconds")
     parts = [_SYSTEM_PROMPT, f"Current time: {now} (Asia/Jakarta, WIB)."]
     lang = (config.get("configurable") or {}).get("lang")
-    if hint := _LANG_HINTS.get(str(lang or "en")):
+    # Scheduled turns pass lang=None — the default "match the user's message"
+    # rule applies instead of forcing a language on the reply.
+    if lang and (hint := _LANG_HINTS.get(str(lang))):
         parts.append(hint)
     if hint := _WORKFLOW_HINTS.get(state.get("workflow", "")):
         parts.append(hint)

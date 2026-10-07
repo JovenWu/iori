@@ -50,14 +50,26 @@ async def lifespan(app: FastAPI):
         logger.critical(msg)
         raise RuntimeError(msg)
 
-    from app.agent import service
+    from app.agent import scheduler, service
     from app.sectors import client as sectors_client
 
     await service.init_service()
     sectors_client.init_client()
+    # Recurring-job worker — needs the checkpointer pool up first.
+    scheduler_task = (
+        asyncio.create_task(scheduler.scheduler_loop())
+        if settings.SCHEDULER_ENABLED
+        else None
+    )
     try:
         yield
     finally:
+        if scheduler_task is not None:
+            scheduler_task.cancel()
+            try:
+                await scheduler_task
+            except asyncio.CancelledError:
+                pass
         await sectors_client.close_client()
         await jev_close()
         await service.shutdown_service()

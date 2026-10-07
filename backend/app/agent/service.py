@@ -235,7 +235,10 @@ async def get_thread_messages(thread_id: str | uuid.UUID) -> list[dict]:
             pending_tools = []  # new turn
             pending_reasoning = []
             if isinstance(m.content, str):
-                entries.append((i, {"role": "user", "content": m.content}))
+                entry = {"role": "user", "content": m.content}
+                if m.additional_kwargs.get("scheduled"):
+                    entry["scheduled"] = True
+                entries.append((i, entry))
         elif isinstance(m, AIMessage):
             pending_tools += [
                 {"name": tc["name"], "args": tc.get("args") or {}}
@@ -284,7 +287,8 @@ async def get_thread_messages(thread_id: str | uuid.UUID) -> list[dict]:
 
 
 async def run_turn(
-    run: AgentRun, user_id: int, thread_id: str, user_msg: str, lang: str = "en"
+    run: AgentRun, user_id: int, thread_id: str, user_msg: str,
+    lang: str | None = "en", scheduled: bool = False,
 ) -> None:
     """Stream the graph for one turn into `run`'s buffer. Never raises."""
     # Title runs concurrently — independent of the answer and usually
@@ -300,7 +304,11 @@ async def run_turn(
         async with async_session_maker() as db:
             config["configurable"]["db"] = db
             async for kind, payload in graph.astream(
-                {"messages": [HumanMessage(content=user_msg)]},
+                {"messages": [HumanMessage(
+                    content=user_msg,
+                    # Scheduled turns are marked so history can badge them.
+                    additional_kwargs={"scheduled": True} if scheduled else {},
+                )]},
                 config,
                 stream_mode=["messages", "updates"],
             ):

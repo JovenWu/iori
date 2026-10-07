@@ -60,6 +60,8 @@ class ToolCallOut(BaseModel):
 class ChatMessageOut(BaseModel):
     role: str
     content: str
+    # True when the turn was fired by a scheduled job, not typed by the user.
+    scheduled: bool = False
     # Reasoning summary the model produced for this turn, if any — the live
     # stream reports it as `reasoning` events.
     reasoning: str | None = None

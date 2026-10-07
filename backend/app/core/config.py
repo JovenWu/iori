@@ -99,6 +99,11 @@ class Settings(BaseSettings):
     STREAM_RUN_LINGER_SECONDS: int = 45
     CHECKPOINTER_POOL_MAX_SIZE: int = 25
 
+    # Scheduled jobs worker — recurring prompts fired as normal agent turns.
+    SCHEDULER_ENABLED: bool = True
+    SCHEDULER_TICK_SECONDS: int = 60
+    SCHEDULER_MAX_PER_TICK: int = 5
+
     # Max JSON request body buffered into memory (DoS guard).
     MAX_JSON_BODY_BYTES: int = 256 * 1024
 
