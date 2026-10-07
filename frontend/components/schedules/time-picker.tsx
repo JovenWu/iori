@@ -36,8 +36,8 @@ function TimeColumn({
   }, []);
 
   return (
-    <div className="flex flex-col">
-      <p className="px-1 pb-1 text-center text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
+    <div className="flex w-14 flex-col">
+      <p className="pb-1 text-center text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
         {label}
       </p>
       <div className="flex max-h-44 flex-col gap-0.5 overflow-y-auto px-0.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
@@ -48,7 +48,7 @@ function TimeColumn({
             type="button"
             onClick={() => onSelect(v)}
             className={cn(
-              "rounded-md px-3 py-1 font-mono text-xs tabular-nums transition-colors",
+              "rounded-md py-1 text-center font-mono text-xs tabular-nums transition-colors",
               v === selected
                 ? "bg-primary/15 font-medium text-primary"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -91,7 +91,7 @@ export function TimePicker({
           <span className="text-[10px] text-muted-foreground">GMT+7</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto gap-0 p-2">
+      <PopoverContent align="start" className="w-auto gap-0 p-1.5">
         <div className="flex items-stretch">
           <TimeColumn
             label="Hour"
@@ -110,9 +110,6 @@ export function TimePicker({
             }}
           />
         </div>
-        <p className="mt-1.5 border-t border-border px-1 pt-1.5 text-[10px] text-muted-foreground">
-          Western Indonesia Time · GMT+7
-        </p>
       </PopoverContent>
     </Popover>
   );
