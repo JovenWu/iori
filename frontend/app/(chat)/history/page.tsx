@@ -149,9 +149,15 @@ function groupThreads(threads: Thread[], now: number) {
   const buckets = new Map<string, Thread[]>();
   const ordered: { label: string; threads: Thread[] }[] = [];
 
+  // Starred threads pin above every date bucket (mirrors the sidebar's
+  // Favorites section) regardless of the active sort direction.
+  const favorites = threads.filter((t) => t.starred);
+  if (favorites.length) ordered.push({ label: "Favorites", threads: favorites });
+
   // Threads arrive pre-sorted, so first-seen bucket order already matches the
   // active sort direction for both the fixed buckets and the month buckets.
   for (const thread of threads) {
+    if (thread.starred) continue;
     const label = groupLabelFor(thread.updated_at, now);
     const bucket = buckets.get(label);
     if (bucket) {
