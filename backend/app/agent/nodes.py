@@ -86,8 +86,11 @@ _reasoning = (
     if settings.MODEL_REASONING_EFFORT
     else None
 )
+# timeout bounds each read on the stream — a stalled upstream can't pin a
+# run's pooled resources forever.
 _agent_base = get_chat_model(
-    settings.MODEL_NAME, temperature=0.3, streaming=True, reasoning=_reasoning
+    settings.MODEL_NAME, temperature=0.3, streaming=True, timeout=180,
+    reasoning=_reasoning,
 )
 agent_llm = _agent_base.bind_tools(AGENT_TOOLS)
 

@@ -155,37 +155,65 @@ export async function logout() {
   }
 }
 
-async function tryRefresh(): Promise<boolean> {
-  const refresh = localStorage.getItem(REFRESH_KEY);
-  if (!refresh) return false;
-  const resp = await fetch(`${BASE}/auth/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: refresh }),
-  }).catch(() => null);
-  if (!resp?.ok) return false;
-  const body = await resp.json();
-  setTokens(body.access_token, body.refresh_token);
-  return true;
+/** Concurrent 401s share one in-flight refresh — otherwise a burst of
+ * parallel requests rotates the refresh token N times and the last ones
+ * fail, logging the user out on a healthy session. */
+let refreshInflight: Promise<boolean> | null = null;
+
+function tryRefresh(): Promise<boolean> {
+  refreshInflight ??= (async () => {
+    const refresh = localStorage.getItem(REFRESH_KEY);
+    if (!refresh) return false;
+    try {
+      const resp = await fetch(`${BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refresh }),
+      });
+      if (!resp.ok) return false;
+      const body = await resp.json().catch(() => null);
+      if (!body?.access_token || !body?.refresh_token) return false;
+      setTokens(body.access_token, body.refresh_token);
+      return true;
+    } catch {
+      return false;
+    }
+  })().finally(() => {
+    refreshInflight = null;
+  });
+  return refreshInflight;
 }
 
-export async function apiFetch<T>(
-  path: string,
+/** fetch with the access token attached; a 401 refreshes once and retries.
+ * Shared by the plain API client and every streaming entry point so SSE
+ * endpoints get the same session healing as regular requests. */
+async function authedFetch(
+  url: string,
   init: RequestInit = {},
   retried = false,
-): Promise<T> {
+): Promise<Response> {
   const token = getAccessToken();
-  const resp = await fetch(`${BASE}${path}`, {
+  const resp = await fetch(url, {
     ...init,
     headers: {
-      "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init.headers,
     },
   });
   if (resp.status === 401 && !retried && (await tryRefresh())) {
-    return apiFetch<T>(path, init, true);
+    return authedFetch(url, init, true);
   }
+  return resp;
+}
+
+export async function apiFetch<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const resp = await authedFetch(`${BASE}${path}`, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...init.headers },
+  });
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({}));
     throw new ApiError(resp.status, body.detail ?? `HTTP ${resp.status}`);
@@ -239,11 +267,7 @@ export const getMe = () => apiFetch<User>("/users/me");
 /** Raw GET stream — used by the sidebar's detached-run watcher, which just
  * drains the body until the server closes it. */
 export function fetchThreadStream(id: string, signal: AbortSignal) {
-  const token = getAccessToken();
-  return fetch(`${BASE}/threads/${id}/stream`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    signal,
-  });
+  return authedFetch(`${BASE}/threads/${id}/stream`, { signal });
 }
 
 /** GET /threads/{id}/stream — reattach to a live run's replay buffer.
@@ -252,11 +276,7 @@ export async function resumeThreadStream(
   id: string,
   signal?: AbortSignal,
 ): Promise<AsyncGenerator<StreamEvent> | null> {
-  const token = getAccessToken();
-  const resp = await fetch(`${BASE}/threads/${id}/stream`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    signal,
-  });
+  const resp = await authedFetch(`${BASE}/threads/${id}/stream`, { signal });
   if (resp.status === 404) return null;
   return readSSE<StreamEvent>(await requireStreamBody(resp));
 }
@@ -265,6 +285,9 @@ export const listMemories = () =>
   apiFetch<{ memories: Memory[]; count: number }>("/memories");
 export const deleteMemory = (id: string) =>
   apiFetch<{ detail: string }>(`/memories/${id}`, { method: "DELETE" });
+
+/** Frame terminator: "\n\n" or "\r\n\r\n" — proxies/servers may emit CRLF. */
+const SSE_FRAME_END = /\r?\n\r?\n/;
 
 /** Parse a streaming SSE body into typed events until the server closes it. */
 async function* readSSE<E>(body: ReadableStream<Uint8Array>): AsyncGenerator<E> {
@@ -276,13 +299,17 @@ async function* readSSE<E>(body: ReadableStream<Uint8Array>): AsyncGenerator<E> 
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      let idx: number;
-      while ((idx = buffer.indexOf("\n\n")) !== -1) {
-        const frame = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 2);
-        for (const line of frame.split("\n")) {
-          if (line.startsWith("data: ")) {
-            yield JSON.parse(line.slice(6)) as E;
+      let m: RegExpExecArray | null;
+      while ((m = SSE_FRAME_END.exec(buffer)) !== null) {
+        const frame = buffer.slice(0, m.index);
+        buffer = buffer.slice(m.index + m[0].length);
+        for (const rawLine of frame.split("\n")) {
+          const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+          if (!line.startsWith("data:")) continue;
+          try {
+            yield JSON.parse(line.slice(5).trimStart()) as E;
+          } catch {
+            // A malformed frame shouldn't kill the stream — skip it.
           }
         }
       }
@@ -307,13 +334,9 @@ async function* streamSSE<E>(
   body: unknown,
   signal?: AbortSignal,
 ): AsyncGenerator<E> {
-  const token = getAccessToken();
-  const resp = await fetch(`${BASE}${path}`, {
+  const resp = await authedFetch(`${BASE}${path}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
     signal,
   });
@@ -345,11 +368,7 @@ export const streamAksiCheck = (
 export async function resumeAksiCheck(
   signal?: AbortSignal,
 ): Promise<AsyncGenerator<AksiStreamEvent> | null> {
-  const token = getAccessToken();
-  const resp = await fetch(`${BASE}/aksi/check/stream`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    signal,
-  });
+  const resp = await authedFetch(`${BASE}/aksi/check/stream`, { signal });
   if (resp.status === 404) return null;
   return readSSE<AksiStreamEvent>(await requireStreamBody(resp));
 }

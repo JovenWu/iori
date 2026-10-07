@@ -1,4 +1,4 @@
-# sectors-agent
+# iori
 
 Full-stack agentic IDX market-analysis assistant — FastAPI + LangGraph + PostgreSQL/pgvector backend, Next.js frontend — with long-term memory, rolling context management, resumable SSE streaming, TypeSafe JEV as the classifier for routing and retrieval decisions, and a credit-aware Sectors API integration (35 tools over a permanent Postgres cache).
 

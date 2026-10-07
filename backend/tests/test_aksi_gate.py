@@ -63,7 +63,7 @@ def test_render_substitutes_per_language():
 
 
 @pytest.mark.asyncio
-async def test_judge_reasons_and_fail_open(monkeypatch):
+async def test_judge_reasons_and_fail_closed(monkeypatch):
     async def strict(state, questions):
         return SimpleNamespace(nouls={"advice": SimpleNamespace(noul=0.8),
                                       "grounded": SimpleNamespace(noul=0.2)})
@@ -73,8 +73,9 @@ async def test_judge_reasons_and_fail_open(monkeypatch):
 
     monkeypatch.setattr(gate, "jev_ask", strict)
     assert await gate.judge("x", []) == ["advice_language", "ungrounded"]
+    # JEV outage fails closed — an unjudged draft must not ship.
     monkeypatch.setattr(gate, "jev_ask", missing)
-    assert await gate.judge("x", []) == []
+    assert await gate.judge("x", []) == ["jev_unavailable"]
 
 
 @pytest.mark.asyncio
@@ -86,15 +87,26 @@ async def test_produce_accepts_good_draft_and_falls_back_on_bad(monkeypatch):
         async def ainvoke(self, messages, config=None):
             return briefs.BriefDraft(**self.draft)
 
+    async def passing(state, questions):
+        return SimpleNamespace(nouls={"advice": SimpleNamespace(noul=0.0),
+                                      "grounded": SimpleNamespace(noul=1.0)})
+
     async def missing(state, questions):
         return None
 
-    monkeypatch.setattr(gate, "jev_ask", missing)
+    monkeypatch.setattr(gate, "jev_ask", passing)
     monkeypatch.setattr(briefs, "_writer", Writer(good_draft()))
     found = [{"id": "controller_change", "kind": "controller_change", "text_id": "x"}]
     ok = await briefs.produce(EV, FIGS, found)
     assert ok["gate"] == {"passed": True, "reasons": [], "template": False}
 
+    # JEV down → even a clean draft falls back to the deterministic template.
+    monkeypatch.setattr(gate, "jev_ask", missing)
+    outage = await briefs.produce(EV, FIGS, found)
+    assert outage["gate"]["template"] is True
+    assert "jev_unavailable" in outage["gate"]["reasons"]
+
+    monkeypatch.setattr(gate, "jev_ask", passing)
     bad = {**good_draft(), "summary_id": "Harus tebus 1250 hak."}
     monkeypatch.setattr(briefs, "_writer", Writer(bad))
     fallback = await briefs.produce(EV, FIGS, found)

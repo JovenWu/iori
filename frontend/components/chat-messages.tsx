@@ -126,7 +126,18 @@ function AssistantMessage({
       ) : null}
       {msg.content && (
         <div className={markdownClasses}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              // Wide tables would otherwise blow out the message column on
+              // mobile — the wrapper scrolls, the page doesn't.
+              table: (props) => (
+                <div className="overflow-x-auto">
+                  <table {...props} />
+                </div>
+              ),
+            }}
+          >
             {msg.content}
           </ReactMarkdown>
         </div>

@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import Any
 
@@ -10,6 +11,8 @@ from app.memory.recall import recall_scored
 from app.models.memory import Memory
 from app.models.user import User
 from app.schemas.memory import MemoryListOut, MemorySearchResult
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -32,7 +35,17 @@ async def search_memories(
     current_user: User = Depends(deps.get_current_user),
     db: AsyncSession = Depends(deps.get_db),
 ) -> Any:
-    return await recall_scored(db, current_user.id, q)
+    try:
+        return await recall_scored(db, current_user.id, q)
+    except Exception:
+        # Ranked recall touches embeddings + rerank — degrade to the
+        # keyword arm so search still works when the LLM side is down.
+        logger.exception("memory search: ranked recall failed, using BM25")
+        rows = await store.bm25_search(db, current_user.id, q, top_k=10)
+        return [
+            {"memory": m, "vector_score": 0.0, "rerank_score": float(rank)}
+            for m, rank in rows
+        ]
 
 
 @router.delete("/{memory_id}")

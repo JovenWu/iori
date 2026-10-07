@@ -21,11 +21,13 @@ from app.schedules.due import WIB
 logger = logging.getLogger(__name__)
 
 
-async def fire_job(job: ScheduledJob) -> str:
+async def fire_job(job: ScheduledJob, *, stamp: bool = True) -> str:
     """Start a run_turn for one job. Returns "fired" | "skipped" | "busy".
-    Stamps last_run_at first so the slot is consumed either way."""
+    `stamp` consumes the slot up front so a failed/skipped fire never
+    retries; manual runs pass stamp=False and leave the slot alone."""
     tid = str(job.thread_id)
-    await store.stamp_last_run(job.id, datetime.now(WIB))
+    if stamp:
+        await store.stamp_last_run(job.id, datetime.now(WIB))
     async with registry.thread_lock(tid):
         live = registry.get(tid)
         if live is not None and not live.done:

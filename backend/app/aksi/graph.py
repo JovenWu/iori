@@ -11,7 +11,9 @@ from langgraph.graph import END, START, StateGraph
 
 from app.aksi import nodes
 
-RECURSION_LIMIT = 50
+# 4 node steps per event + scan + finish; the plan sizes this at 100 so a
+# MAX_EVENTS-sized run can never hit GraphRecursionError.
+RECURSION_LIMIT = 100
 
 
 def _merge(left: list, right: list) -> list:
@@ -30,6 +32,7 @@ class AksiState(TypedDict, total=False):
     results: Annotated[list[dict], _merge]
     credits_used: int
     budget: int
+    scan_failed: bool
 
 
 def _has_events(state: AksiState) -> str:

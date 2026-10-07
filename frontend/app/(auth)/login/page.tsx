@@ -58,13 +58,13 @@ export default function LoginPage() {
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
           <Image
             src="/logo.svg"
-            alt="Sectors Agent logo"
+            alt="iori logo"
             width={32}
             height={32}
             className="drop-shadow-[0_2px_5px_rgb(62_198_173/0.45)]"
           />
-          <h1 className="text-2xl font-semibold tracking-[-0.02em]">
-            Sectors Agent
+          <h1 className="font-brand text-4xl font-bold tracking-tight">
+            iori
           </h1>
           <p className="text-sm text-muted-foreground">
             IDX market analysis. Information, not advice.

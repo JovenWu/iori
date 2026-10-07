@@ -40,17 +40,20 @@ export function ChatInput({
   }
 
   return (
-    <div className="rounded-2xl border border-border bg-card shadow-[0_1px_2px_rgb(0_0_0/0.04),0_8px_24px_-12px_rgb(0_0_0/0.08)] transition-shadow focus-within:ring-2 focus-within:ring-ring/40">
+    // Hairline + focus ring only — DESIGN.md bars drop shadows on dark.
+    <div className="rounded-2xl border border-border bg-card transition-shadow focus-within:ring-2 focus-within:ring-ring/40">
       <Textarea
         ref={ref}
         value={value}
         disabled={disabled}
+        aria-label="Message"
         onChange={(e) => {
           setValue(e.target.value);
           autosize(e.target);
         }}
         onKeyDown={(e) => {
-          if (e.key !== "Enter") return;
+          // isComposing: Enter confirms an IME candidate, not a send.
+          if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
           const wantsSend = settings.sendWithEnter
             ? !e.shiftKey
             : e.ctrlKey || e.metaKey;
@@ -61,17 +64,18 @@ export function ChatInput({
         }}
         placeholder="Ask about the IDX — prices, filings, movers, news…"
         rows={1}
-        className="max-h-[200px] min-h-0 resize-none border-0 bg-transparent px-3.5 py-3 text-sm shadow-none focus-visible:ring-0"
+        // text-base on mobile — <16px inputs trigger iOS auto-zoom on focus.
+        className="max-h-[200px] min-h-0 resize-none border-0 bg-transparent px-3.5 py-3 text-base shadow-none focus-visible:ring-0 md:text-sm"
       />
       <div className="flex items-center justify-between px-3 pb-2.5">
-        <span className="font-mono text-[11px] text-muted-foreground/70">
+        <span className="font-mono text-[11px] text-muted-foreground">
           {settings.sendWithEnter
             ? "Enter to send · Shift+Enter for a newline"
             : "Ctrl+Enter to send · Enter for a newline"}
         </span>
         {running ? (
           <Button
-            size="icon-sm"
+            size="icon"
             variant="secondary"
             onClick={onStop}
             aria-label="Stop generating"
@@ -81,7 +85,7 @@ export function ChatInput({
           </Button>
         ) : (
           <Button
-            size="icon-sm"
+            size="icon"
             onClick={submit}
             disabled={!value.trim() || disabled}
             aria-label="Send"

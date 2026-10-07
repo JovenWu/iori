@@ -22,7 +22,7 @@ export interface AppSettings {
   language: LanguagePreference
 }
 
-const STORAGE_KEY = "sectors-agent:settings"
+const STORAGE_KEY = "iori:settings"
 
 export const DEFAULT_SETTINGS: AppSettings = {
   theme: "dark",

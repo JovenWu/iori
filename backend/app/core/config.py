@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # All chat / classification / embedding calls go through OpenRouter.
     OPENROUTER_API_KEY: str
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    OPENROUTER_APP_NAME: str = "sectors-agent"
+    OPENROUTER_APP_NAME: str = "iori"
     MODEL_NAME: str = "openai/gpt-5.6-luna"
     CLASSIFIER_MODEL: str = "openai/gpt-5.6-luna"
     # Reasoning effort for the agent model. Reasoning-capable models then
@@ -130,6 +130,12 @@ class Settings(BaseSettings):
             violations.append(
                 "APP_USERNAME/APP_PASSWORD still have their shipped defaults "
                 "(demo/demo123) — set real credentials."
+            )
+        weak_db = {"", "postgres", "password", "changeme", self.POSTGRES_USER}
+        if self.POSTGRES_PASSWORD.strip().lower() in weak_db:
+            violations.append(
+                "POSTGRES_PASSWORD is blank, a shipped default, or equal to "
+                "the username — set a real database password."
             )
         return violations
 

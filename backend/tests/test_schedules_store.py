@@ -61,14 +61,25 @@ async def test_delete_job_keeps_thread(db, _bind, user):
 
 async def test_due_jobs_filters(db, _bind, user):
     from datetime import datetime, time
+    from sqlalchemy import update
+    from app.models.scheduled_job import ScheduledJob
     from app.schedules.due import WIB
     due = await store.create_job(
         user.id, name="due", prompt="p", frequency="daily",
         run_time=time(9, 0), weekday=None, day_of_month=None)
-    await store.create_job(
+    notdue = await store.create_job(
         user.id, name="notdue", prompt="p", frequency="daily",
         run_time=time(23, 59), weekday=None, day_of_month=None)
     now = datetime(2026, 10, 7, 18, 0, tzinfo=WIB)
+    # `due` is a legacy row that missed its slot; `notdue` already ran
+    # (create_job stamps now, so pin it deterministically).
+    await db.execute(
+        update(ScheduledJob)
+        .where(ScheduledJob.id == due.id)
+        .values(last_run_at=None)
+    )
+    await db.commit()
+    await store.stamp_last_run(notdue.id, now)
     ids = [j.id for j in await store.due_jobs(now)]
     assert ids == [due.id]
     # Once stamped past the slot, no longer due.

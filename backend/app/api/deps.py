@@ -29,10 +29,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
-async def get_current_user(
-    db: AsyncSession = Depends(get_db),
-    token: str = Depends(reusable_oauth2),
-) -> User:
+async def _user_for_token(db: AsyncSession, token: str) -> User:
     credentials_error = HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Could not validate credentials",
@@ -66,3 +63,20 @@ async def get_current_user(
             detail="Token has been revoked",
         )
     return user
+
+
+async def get_current_user(
+    db: AsyncSession = Depends(get_db),
+    token: str = Depends(reusable_oauth2),
+) -> User:
+    return await _user_for_token(db, token)
+
+
+async def get_current_user_id(
+    token: str = Depends(reusable_oauth2),
+) -> int:
+    """Auth for long-lived SSE endpoints — the session closes before the
+    response starts streaming, so a stream never pins a pooled connection."""
+    async with async_session_maker() as db:
+        user = await _user_for_token(db, token)
+        return user.id

@@ -75,5 +75,5 @@ async def run_schedule_now(
     job = await store.get_job(current_user.id, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
-    status = await scheduler.fire_job(job)
+    status = await scheduler.fire_job(job, stamp=False)
     return {"status": status, "job": store.job_dict(job)}

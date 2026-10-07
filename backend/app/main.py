@@ -81,7 +81,7 @@ _docs_kwargs = (
     if settings.is_production
     else {"openapi_url": f"{settings.API_V1_STR}/openapi.json"}
 )
-app = FastAPI(title="sectors-agent API", lifespan=lifespan, **_docs_kwargs)
+app = FastAPI(title="iori API", lifespan=lifespan, **_docs_kwargs)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

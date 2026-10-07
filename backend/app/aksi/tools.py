@@ -14,9 +14,21 @@ from langchain_core.tools import tool
 
 from app.agent.runs import RunLimitError, registry
 from app.aksi import budget as budget_mod
-from app.aksi import impact, service, store
+from app.aksi import events, impact, service, store
 
 _SYMBOL = re.compile(r"^[A-Z]{4}$")
+_MIN_DATE = date(2021, 1, 1)
+
+
+def _as_of(raw: str | None) -> date | None | str:
+    """Parse a replay date — returns the date, None, or an error string."""
+    try:
+        day = date.fromisoformat(raw) if raw else None
+    except ValueError:
+        return "invalid_date"
+    if day is not None and not (_MIN_DATE <= day <= events.today_wib()):
+        return "invalid_date"
+    return day
 
 
 def _uid(config: RunnableConfig) -> int | None:
@@ -66,13 +78,16 @@ async def aksi_impact(symbol: str, shares: int, as_of: str | None = None) -> str
         as_of: Optional YYYY-MM-DD for a historical replay (default: today).
     """
     sym = _symbol(symbol)
-    if not _SYMBOL.match(sym) or shares < 1:
+    if (
+        not _SYMBOL.match(sym)
+        or int(shares) != shares
+        or not 1 <= int(shares) <= 10**12
+    ):
         return json.dumps({"error": "invalid_input"})
-    try:
-        day = date.fromisoformat(as_of) if as_of else None
-    except ValueError:
-        return json.dumps({"error": "invalid_date"})
-    return json.dumps(await impact.impact(sym, shares, day), default=str)
+    day = _as_of(as_of)
+    if isinstance(day, str):
+        return json.dumps({"error": day})
+    return json.dumps(await impact.impact(sym, int(shares), day), default=str)
 
 
 @tool
@@ -101,10 +116,16 @@ async def holdings_save(symbol: str, shares: int, config: RunnableConfig,
     sym = _symbol(symbol)
     if uid is None:
         return json.dumps({"error": "no_user"})
-    if not _SYMBOL.match(sym) or shares < 1 or int(shares) != shares:
+    if (
+        not _SYMBOL.match(sym)
+        or int(shares) != shares
+        or not 1 <= int(shares) <= 10**12
+        or (avg_price is not None and not 0 < avg_price <= 10**12)
+    ):
         return json.dumps({"error": "invalid_input",
                            "detail": "symbol must be a 4-letter IDX ticker; "
-                                     "shares a whole number >= 1"})
+                                     "shares a whole number 1..1e12; "
+                                     "avg_price a positive number <= 1e12"})
     holdings = [h for h in await store.list_holdings(uid) if h["symbol"] != sym]
     holdings.append({"symbol": sym, "shares": int(shares), "avg_price": avg_price})
     await store.replace_holdings(uid, holdings)
@@ -173,10 +194,9 @@ async def aksi_report(config: RunnableConfig, report_id: str | None = None,
     else:
         if mode not in (None, "live", "replay"):
             return json.dumps({"error": "invalid_mode"})
-        try:
-            day = date.fromisoformat(as_of) if as_of else None
-        except ValueError:
-            return json.dumps({"error": "invalid_date"})
+        day = _as_of(as_of)
+        if isinstance(day, str):
+            return json.dumps({"error": day})
         report = await store.latest_report(uid, mode, day)
     if report is None:
         return json.dumps({"error": "no_report"})
@@ -206,10 +226,9 @@ async def aksi_check(config: RunnableConfig, as_of: str | None = None,
         return json.dumps({"error": "no_holdings",
                            "detail": "No saved holdings — save tickers with "
                                      "holdings_save first."})
-    try:
-        day = date.fromisoformat(as_of) if as_of else None
-    except ValueError:
-        return json.dumps({"error": "invalid_date"})
+    day = _as_of(as_of)
+    if isinstance(day, str):
+        return json.dumps({"error": day})
     tickers = [_symbol(s) for s in (symbols or [])]
     bad = [s for s in tickers if not _SYMBOL.match(s)]
     if bad:

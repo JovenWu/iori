@@ -25,9 +25,13 @@ def test_daily_due_after_slot():
     assert _due(frequency="daily") is True
 
 
-def test_daily_not_due_before_slot():
+def test_daily_catches_up_missed_slot():
+    # Never ran, and yesterday's slot passed while the service was down —
+    # due now, even before today's slot.
     early = NOW.replace(hour=16, minute=0)
-    assert _due(frequency="daily", now=early) is False
+    assert _due(frequency="daily", now=early) is True
+    # A job stamped at creation (last_run_at=now) waits for its next slot.
+    assert _due(frequency="daily", last_run_at=early, now=early) is False
 
 
 def test_daily_not_due_when_already_ran():
@@ -38,24 +42,36 @@ def test_daily_not_due_when_already_ran():
     assert _due(frequency="daily", last_run_at=yesterday) is True
 
 
-def test_weekly_only_on_matching_weekday():
-    assert _due(frequency="weekly", weekday=2) is True   # Wed == Wed
-    assert _due(frequency="weekly", weekday=0) is False  # Mon != Wed
+def test_weekly_catches_up_missed_day():
+    assert _due(frequency="weekly", weekday=2) is True   # today's slot passed
+    # Monday's slot went by unclaimed — the job catches it up on Wednesday.
+    assert _due(frequency="weekly", weekday=0) is True
+    # But not when Monday's slot already ran.
+    mon = datetime(2026, 10, 5, 17, 5, tzinfo=WIB)
+    assert _due(frequency="weekly", weekday=0, last_run_at=mon) is False
 
 
-def test_weekdays_due_mon_fri_not_weekend():
+def test_weekdays_catches_up_over_weekend():
     assert _due(frequency="weekdays") is True  # Wed
     fri = datetime(2026, 10, 9, 18, 0, tzinfo=WIB)
     assert _due(frequency="weekdays", now=fri) is True
+    # A Friday slot missed while down fires first thing Saturday — a job
+    # that ran Friday stays quiet all weekend.
+    ran_fri = datetime(2026, 10, 9, 17, 5, tzinfo=WIB)
     sat = datetime(2026, 10, 10, 18, 0, tzinfo=WIB)
-    assert _due(frequency="weekdays", now=sat) is False
+    assert _due(frequency="weekdays", now=sat) is True
+    assert _due(frequency="weekdays", last_run_at=ran_fri, now=sat) is False
     sun = datetime(2026, 10, 11, 18, 0, tzinfo=WIB)
-    assert _due(frequency="weekdays", now=sun) is False
+    assert _due(frequency="weekdays", last_run_at=ran_fri, now=sun) is False
 
 
-def test_monthly_only_on_day_of_month():
+def test_monthly_catches_up_missed_month():
     assert _due(frequency="monthly", day_of_month=7) is True
-    assert _due(frequency="monthly", day_of_month=8) is False
+    # September's slot never fired — October's isn't here yet, so the job
+    # catches September up.
+    assert _due(frequency="monthly", day_of_month=8) is True
+    ran_sep = datetime(2026, 9, 8, 17, 5, tzinfo=WIB)
+    assert _due(frequency="monthly", day_of_month=8, last_run_at=ran_sep) is False
 
 
 def test_disabled_never_due():

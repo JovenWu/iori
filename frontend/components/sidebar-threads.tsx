@@ -107,7 +107,10 @@ function ThreadRow({
           onDelete={() => actions.openDelete({ threadId: thread.id, title })}
           trigger={
             <SidebarMenuAction
-              className="opacity-0 focus-visible:ring-0 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100"
+              // Always on for touch (mobile sheet has no hover); on desktop it
+              // appears on row hover/focus — incl. the button's own focus, so
+              // keyboard users can see what they just tabbed to.
+              className="focus-visible:opacity-100 focus-visible:ring-0 group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 max-sm:opacity-100 sm:opacity-0"
               onClick={(e) => e.preventDefault()}
             >
               <MoreHorizontalIcon className="size-4" />
@@ -244,7 +247,7 @@ export function SidebarThreads() {
               <p className="text-sm text-muted-foreground">
                 No conversations yet.
               </p>
-              <p className="text-xs text-muted-foreground/70">
+              <p className="text-xs text-muted-foreground">
                 Start a new thread to begin!
               </p>
             </div>
@@ -253,7 +256,7 @@ export function SidebarThreads() {
               {starredThreads.length > 0 && (
                 <>
                   <div className="px-2 pt-1">
-                    <span className="text-xs font-medium text-muted-foreground/70">
+                    <span className="text-xs font-medium text-muted-foreground">
                       Favorites
                     </span>
                   </div>
@@ -272,7 +275,7 @@ export function SidebarThreads() {
               )}
 
               <div className="px-2 pt-1">
-                <span className="text-xs font-medium text-muted-foreground/70">
+                <span className="text-xs font-medium text-muted-foreground">
                   Recent
                 </span>
               </div>

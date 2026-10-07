@@ -5,6 +5,7 @@ that fires a normal turn on its own thread. All times are WIB.
 """
 
 import json
+import re
 from datetime import time
 
 from langchain_core.runnables import RunnableConfig
@@ -39,8 +40,22 @@ def _out(job: dict) -> dict:
 
 
 def _parse_time(raw: str | None) -> time | None:
+    """"HH:MM" plus the loose forms the model actually emits — "17", "1700",
+    "5pm". Python 3.10's time.fromisoformat rejects all of these."""
     if raw is None:
         return None
+    s = raw.strip().lower()
+    m = re.fullmatch(r"(\d{1,2})(?::?(\d{2}))?\s*(am|pm)?", s)
+    if m:
+        h = int(m.group(1))
+        minute = int(m.group(2) or 0)
+        if m.group(3) == "pm" and h < 12:
+            h += 12
+        elif m.group(3) == "am" and h == 12:
+            h = 0
+        if not (0 <= h <= 23 and 0 <= minute <= 59):
+            raise ValueError(raw)
+        return time(h, minute)
     return time.fromisoformat(raw)
 
 

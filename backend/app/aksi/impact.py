@@ -23,4 +23,5 @@ async def impact(symbol: str, shares: int, as_of: date | None = None) -> dict:
         out = [{"event": events.public(ev), "figures": calc.figures_for(ev, price_rows, day)}
                for ev in found]
     return {"symbol": symbol, "as_of": day.isoformat(), "events": out,
-            "fetched_at": cal.get("fetched_at"), "note": NOTE}
+            "fetched_at": cal.get("fetched_at"), "note": NOTE,
+            "upstream_error": cal.get("status") != 200}

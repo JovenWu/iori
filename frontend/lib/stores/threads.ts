@@ -41,7 +41,13 @@ interface ThreadsStore {
   refetchSoon: () => void;
   applyCreated: (threadId: string, title: string) => void;
   applyRenamed: (threadId: string, title: string) => void;
+  /** Optimistic delete — the row drops out and stays hidden while the undo
+   * window runs, even though a refresh would still see it server-side. */
   applyDeleted: (threadId: string) => void;
+  /** Undo fired / delete failed — the row may legitimately reappear. */
+  unmarkDeleted: (threadId: string) => void;
+  /** The DELETE request landed — stop tombstoning the id. */
+  commitDeleted: (threadId: string) => void;
   patchThread: (threadId: string, patch: Partial<ListedThread>) => void;
   /** A live page reports stream state — it owns the run, so any background
    * watcher steps down. False clears the loader and settles the row. */
@@ -70,6 +76,15 @@ function sortThreadsByUpdatedAt(threads: ListedThread[]) {
 const watchers = new Map<string, AbortController>();
 const refetchTimers = new Set<number>();
 let probed = false;
+
+/** Ids removed optimistically but not yet deleted server-side — the toast's
+ * Undo window. Without this a mid-window refresh resurrects the row for
+ * seconds, then it vanishes again when the DELETE lands. */
+const pendingDeletes = new Set<string>();
+/** A failed loadMore page retry cools down — otherwise the infinite-scroll
+ * sentinel spins a request loop while the backend is erroring. */
+let loadMoreBlockedUntil = 0;
+const LOAD_MORE_COOLDOWN_MS = 8000;
 
 const PAGE_SIZE = 20;
 
@@ -108,7 +123,9 @@ export const useThreadsStore = create<ThreadsStore>()((set, get) => ({
         const prevById = new Map(s.threads.map((t) => [t.id, t]));
         // Page one carries every starred thread alongside the recency page —
         // dedup the overlap so a recent favorite isn't listed twice.
-        const pageRows = [...data.starred, ...data.threads];
+        const pageRows = [...data.starred, ...data.threads].filter(
+          (t) => !pendingDeletes.has(t.id),
+        );
         const fetchedIds = new Set(pageRows.map((t) => t.id));
         const hasMore = data.next_cursor !== null;
         const cutoff = getTimestamp(data.threads.at(-1)?.updated_at ?? "");
@@ -144,13 +161,21 @@ export const useThreadsStore = create<ThreadsStore>()((set, get) => ({
 
   loadMore: async () => {
     const { nextCursor, loadingMore } = get();
-    if (nextCursor === null || loadingMore || !getAccessToken()) return;
+    if (
+      nextCursor === null ||
+      loadingMore ||
+      !getAccessToken() ||
+      Date.now() < loadMoreBlockedUntil
+    ) {
+      return;
+    }
     set({ loadingMore: true });
     try {
       const data = await listThreads({ limit: PAGE_SIZE, cursor: nextCursor });
       set((s) => {
         const byId = new Map(s.threads.map((t) => [t.id, t]));
         for (const t of data.threads) {
+          if (pendingDeletes.has(t.id)) continue;
           // Re-fetched rows may overlap page one after reordering — upsert.
           byId.set(t.id, {
             ...t,
@@ -167,6 +192,7 @@ export const useThreadsStore = create<ThreadsStore>()((set, get) => ({
       });
     } catch (err) {
       console.error("Failed to load more threads:", err);
+      loadMoreBlockedUntil = Date.now() + LOAD_MORE_COOLDOWN_MS;
       set({ loadingMore: false });
     }
   },
@@ -225,6 +251,7 @@ export const useThreadsStore = create<ThreadsStore>()((set, get) => ({
   },
 
   applyDeleted: (threadId) => {
+    pendingDeletes.add(threadId);
     watchers.get(threadId)?.abort();
     set((s) => ({
       threads: s.threads.filter((t) => t.id !== threadId),
@@ -233,6 +260,14 @@ export const useThreadsStore = create<ThreadsStore>()((set, get) => ({
           ? s.total - 1
           : s.total,
     }));
+  },
+
+  unmarkDeleted: (threadId) => {
+    pendingDeletes.delete(threadId);
+  },
+
+  commitDeleted: (threadId) => {
+    pendingDeletes.delete(threadId);
   },
 
   patchThread: (threadId, patch) => {
@@ -322,6 +357,8 @@ export const useThreadsStore = create<ThreadsStore>()((set, get) => ({
 export function resetThreadsStore() {
   for (const controller of watchers.values()) controller.abort();
   watchers.clear();
+  pendingDeletes.clear();
+  loadMoreBlockedUntil = 0;
   for (const timer of refetchTimers) window.clearTimeout(timer);
   refetchTimers.clear();
   probed = false;

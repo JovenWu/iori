@@ -203,20 +203,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     let endedCleanly = false;
     try {
       for await (const ev of events) {
-        const data = ev.data as Record<string, string>;
+        const data = (ev.data ?? {}) as Record<string, string>;
         switch (ev.type) {
           case "started": {
-            run.threadId = data.thread_id;
-            // Marks "these messages belong to thread X" — enables the
-            // header's star/more actions mid-run and tells a later return
-            // to "/" to reset.
+            // A malformed frame can carry no thread_id — stream what we can
+            // but don't write undefined into thread-scoped state.
+            const tid =
+              typeof data.thread_id === "string" && data.thread_id
+                ? data.thread_id
+                : null;
+            if (tid) run.threadId = tid;
             const raw = data.started_at;
             const startedAt =
               typeof raw === "number" || /^\d+$/.test(String(raw))
                 ? Number(raw)
                 : Date.parse(String(raw ?? ""));
             if (owns()) {
-              set({ threadId: data.thread_id });
+              if (tid) set({ threadId: tid });
               patch(() => ({
                 run: {
                   tools: [],
@@ -225,14 +228,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 },
               }));
             }
-            if (run.wasNew) {
+            if (tid && run.wasNew) {
               const newTitle = run.prompt.trim().slice(0, 60) || "New thread";
               if (owns()) set({ title: newTitle });
-              useThreadsStore
-                .getState()
-                .applyCreated(data.thread_id, newTitle);
+              useThreadsStore.getState().applyCreated(tid, newTitle);
             }
-            announce(data.thread_id, true);
+            if (tid) announce(tid, true);
             break;
           }
           case "reasoning":
@@ -270,24 +271,27 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               charts: [...(m.charts ?? []), ev.data as ChartSpec],
             }));
             break;
-          case "done":
-            run.threadId = data.thread_id;
+          case "done": {
+            const tid =
+              typeof data.thread_id === "string" && data.thread_id
+                ? data.thread_id
+                : run.threadId;
+            if (tid) run.threadId = tid;
             if (owns()) {
-              set({ threadId: data.thread_id });
-              // A URL change only, no remount — this view keeps holding the
-              // finished thread while the route prop stays null.
-              window.history.replaceState(
-                null,
-                "",
-                `/threads/${data.thread_id}`,
-              );
+              if (tid) {
+                set({ threadId: tid });
+                // A URL change only, no remount — this view keeps holding the
+                // finished thread while the route prop stays null.
+                window.history.replaceState(null, "", `/threads/${tid}`);
+              }
               patch((m) => ({
                 content: data.answer || m.content,
                 run: settleRun(m, "done"),
               }));
             }
-            announce(data.thread_id, false);
+            if (tid) announce(tid, false);
             break;
+          }
           case "stopped":
             patch((m) => ({
               content: data.answer || m.content,
@@ -331,6 +335,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   }
 
   async function runStream(text: string, assistantId: string) {
+    // A detached consumer may still be draining this thread's previous run —
+    // abort it before the new stream starts so its terminal announce(false)
+    // can't land after our announce(true) and clear the pending flag. The
+    // server-side supersede then finishes quiescing it.
+    const tid = get().threadId;
+    if (tid) {
+      for (const r of detachedRuns) {
+        if (r.threadId === tid) r.controller.abort();
+      }
+    }
     const run: ActiveRun = {
       controller: new AbortController(),
       threadId: null,

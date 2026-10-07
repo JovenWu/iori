@@ -97,7 +97,7 @@ function JobCard({
           <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
             {job.prompt}
           </p>
-          <p className="mt-1.5 text-[11px] text-muted-foreground/70">
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
             Next run {formatWhen(job.next_run_at)}
             {job.last_run_at && ` · last ran ${formatWhen(job.last_run_at)}`}
           </p>
@@ -192,7 +192,7 @@ function JobForm({
             rows={3}
             maxLength={8000}
           />
-          <p className="text-[11px] text-muted-foreground/70">
+          <p className="text-[11px] text-muted-foreground">
             The agent runs this as a full turn on its own thread — tools,
             memory and all.
           </p>
@@ -389,7 +389,7 @@ export function SchedulesView() {
               <p className="text-sm text-muted-foreground">
                 No scheduled jobs yet.
               </p>
-              <p className="max-w-sm text-xs text-muted-foreground/70">
+              <p className="max-w-sm text-xs text-muted-foreground">
                 Create one here, or ask the agent — e.g. “every weekday at
                 5pm, scan my holdings for corporate actions”.
               </p>

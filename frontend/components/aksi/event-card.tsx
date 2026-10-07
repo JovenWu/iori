@@ -29,12 +29,13 @@ function num(v: unknown): number | null {
 
 function Subline({ event, lang }: { event: AksiEvent; lang: Lang }) {
   const t = copy[lang];
-  const price = num(event.row.price);
-  const amount = num(event.row.dividend_amount);
+  const row = event.row ?? {};
+  const price = num(row.price);
+  const amount = num(row.dividend_amount);
   const priceText = price !== null ? formatIdr(price, lang) : "—";
   let text: string;
   if (event.kind === "right_issue") {
-    text = `${t.ratio} ${event.row.old_ratio ?? "—"} : ${event.row.new_ratio ?? "—"} · ${t.exercisePrice} ${priceText}`;
+    text = `${t.ratio} ${row.old_ratio ?? "—"} : ${row.new_ratio ?? "—"} · ${t.exercisePrice} ${priceText}`;
   } else if (event.kind === "dividend") {
     const amountText = amount !== null ? formatIdr(amount, lang) : "—";
     text = `${t.dividendPerShare} ${amountText}`;
@@ -73,17 +74,19 @@ function DeadlineChip({ event, asOf, replay, lang }: {
 function NumbersGrid({ event, lang }: { event: AksiEvent; lang: Lang }) {
   const t = copy[lang];
   const f = event.figures;
+  // Server kinds outside the copy table degrade to an empty grid, not a crash.
+  const tiles = t.tiles[event.kind] ?? [];
   if (!f) {
     return (
       <div className="grid grid-cols-2 gap-3 px-4 py-3 sm:grid-cols-4">
-        {t.tiles[event.kind].map((tile) => <Skeleton key={tile.key} className="h-14 rounded-lg" />)}
+        {tiles.map((tile) => <Skeleton key={tile.key} className="h-14 rounded-lg" />)}
       </div>
     );
   }
   return (
     <div className="space-y-2 px-4 py-3">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {t.tiles[event.kind].map((tile) => {
+        {tiles.map((tile) => {
           const fig = f[tile.key];
           return (
             <div key={tile.key} className="rounded-lg border border-border px-3 py-2"
@@ -109,8 +112,8 @@ function Timeline({ event, asOf, lang }: { event: AksiEvent; asOf: string | null
   const t = copy[lang];
   const today = asOf ? asOf.slice(0, 10) : null;
   const items = [
-    ...t.timelineLabels[event.kind]
-      .map((p) => ({ ...p, date: event.row[p.key] ? String(event.row[p.key]).slice(0, 10) : "", isToday: false }))
+    ...(t.timelineLabels[event.kind] ?? [])
+      .map((p) => ({ ...p, date: event.row?.[p.key] ? String(event.row[p.key]).slice(0, 10) : "", isToday: false }))
       .filter((p) => p.date),
     ...(today ? [{ key: "today", label: t.today, date: today, isToday: true }] : []),
   ].sort((a, b) => a.date.localeCompare(b.date));
@@ -158,10 +161,11 @@ function Scenarios({ event, lang }: { event: AksiEvent; lang: Lang }) {
 }
 
 function Context({ event, lang }: { event: AksiEvent; lang: Lang }) {
-  if (!event.findings.length) return null;
+  const findings = event.findings ?? [];
+  if (!findings.length) return null;
   return (
     <ul className="space-y-2 px-4 py-3">
-      {event.findings.map((f) => (
+      {findings.map((f) => (
         <li key={f.id} className="text-sm text-ink-muted">
           {lang === "id" ? f.text_id : f.text_en}{" "}
           <span className="ml-1 whitespace-nowrap rounded border border-border px-1 py-0.5 font-mono text-[11px] text-muted-foreground">
@@ -207,6 +211,9 @@ export function EventCard({ event, asOf, replay }: {
   const lang = useSettings().settings.language;
   const t = copy[lang];
   const [open, setOpen] = useState(false);
+  // An event kind outside the known union has no copy/labels — skip the card
+  // rather than crash on KIND_LABEL[event.kind].
+  if (!KIND_LABEL[event.kind]) return null;
   return (
     <article className="rounded-xl border border-border bg-card">
       <button

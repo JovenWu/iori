@@ -4,11 +4,14 @@ Code writes every sentence (with its numbers) — the brief LLM only references
 finding ids. Rows dated after `as_of` are ignored so replays never peek ahead.
 """
 
+import logging
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
 from app.aksi import calc, fmt
+
+logger = logging.getLogger(__name__)
 
 _VERB = {"buy": ("membeli", "bought"), "sell": ("menjual", "sold")}
 
@@ -74,6 +77,15 @@ def controller_change(filings_env: Any, ownership_env: Any, as_of: date) -> dict
     holder = top_holder(ownership_env)
     matched = [r for r in filings
                if holder and holder.lower() in str(r.get("holder_name") or "").lower()]
+    if holder and not matched:
+        # Filings exist but none name the controller — say that rather than
+        # pinning someone else's transaction on them.
+        return _finding(
+            "controller_change",
+            f"{holder} tidak tercatat bertransaksi pada periode ini.",
+            f"{holder} recorded no transactions in this period.",
+            {"holder": holder, "count": 0}, "sectors_insider_filings",
+            filings_env)
     r = max(matched or filings, key=_day)
     name = str(r.get("holder_name") or "Pemegang saham")
     verb_id, verb_en = _VERB.get(str(r.get("transaction_type") or "").lower(),
@@ -148,8 +160,13 @@ def dividend_yield(ev: dict) -> dict | None:
     y = calc.parse_decimal(ev["row"].get("dividend_yield"))
     if y is None:
         return None
-    return _finding("dividend_yield", f"Yield dividen menurut data Sectors: {fmt.pct(y)}.",
-                    f"Dividend yield per Sectors data: {fmt.pct(y, 'en')}.",
+    # Upstream yield is sometimes a ratio (0.05), sometimes percent units
+    # (5.0) — values above 1 can only be the latter.
+    rendered = fmt.pct_raw(y) if y > 1 else fmt.pct(y)
+    rendered_en = fmt.pct_raw(y, "en") if y > 1 else fmt.pct(y, "en")
+    return _finding("dividend_yield",
+                    f"Yield dividen menurut data Sectors: {rendered}.",
+                    f"Dividend yield per Sectors data: {rendered_en}.",
                     {"yield": float(y)}, "sectors_corporate_actions")
 
 
@@ -182,20 +199,35 @@ def needs_investigation(found: list[dict]) -> bool:
     return any((f.get("values") or {}).get("count") == 0 for f in found)
 
 
+def _try(fn, *args) -> dict | None:
+    """One malformed row must never sink a finding — or the run."""
+    try:
+        return fn(*args)
+    except Exception:
+        logger.warning("aksi finding extractor failed", exc_info=True)
+        return None
+
+
 def extract(ev: dict, pack: dict, extra: list[dict], as_of: date) -> list[dict]:
     kind = ev["kind"]
     if kind == "right_issue":
         candidates = [
-            controller_change(_with_extra(pack.get("filings"), extra, "sectors_insider_filings"),
-                              pack.get("ownership"), as_of),
-            price_vs_exercise(ev, pack.get("prices"), as_of),
-            ownership_shift(_with_extra(pack.get("shareholders"), extra, "sectors_shareholders"),
-                            as_of),
+            _try(controller_change,
+                 _with_extra(pack.get("filings"), extra, "sectors_insider_filings"),
+                 pack.get("ownership"), as_of),
+            _try(price_vs_exercise, ev,
+                 _with_extra(pack.get("prices"), extra, "sectors_daily_prices"), as_of),
+            _try(ownership_shift,
+                 _with_extra(pack.get("shareholders"), extra, "sectors_shareholders"),
+                 as_of),
         ]
     elif kind == "warrant":
-        candidates = [price_vs_exercise(ev, pack.get("prices"), as_of)]
+        candidates = [
+            _try(price_vs_exercise, ev,
+                 _with_extra(pack.get("prices"), extra, "sectors_daily_prices"), as_of)
+        ]
     elif kind == "dividend":
-        candidates = [dividend_yield(ev)]
+        candidates = [_try(dividend_yield, ev)]
     else:
         candidates = []
     return [c for c in candidates if c]

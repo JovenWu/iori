@@ -19,24 +19,56 @@ def _weekday_ok(frequency: str, day_weekday: int, weekday: int | None) -> bool:
     return weekday is not None and day_weekday == weekday
 
 
+def _prev_month(now: datetime) -> tuple[int, int]:
+    return (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
+
+
+def _last_slot(*, frequency: str, run_time: time, weekday: int | None,
+               day_of_month: int | None,
+               now: datetime) -> datetime | None:
+    """The most recent slot at or before `now` — checking only today's slot
+    silently drops jobs missed while the service was down (server off over a
+    Friday slot would wait a whole weekend/month for the next one)."""
+    candidates: list[datetime] = []
+    if frequency == "daily":
+        candidates = [
+            _slot_on(now.date(), run_time),
+            _slot_on(now.date() - timedelta(days=1), run_time),
+        ]
+    elif frequency in ("weekly", "weekdays"):
+        candidates = [
+            _slot_on(now.date() - timedelta(days=d), run_time)
+            for d in range(8)
+            if _weekday_ok(
+                frequency,
+                (now.date() - timedelta(days=d)).weekday(),
+                weekday,
+            )
+        ]
+    elif frequency == "monthly" and day_of_month is not None:
+        day = min(day_of_month, _MAX_MONTH_DAY)
+        prev_y, prev_m = _prev_month(now)
+        candidates = [
+            _slot_on(date(now.year, now.month, day), run_time),
+            _slot_on(date(prev_y, prev_m, day), run_time),
+        ]
+    past = [s for s in candidates if s <= now]
+    return max(past) if past else None
+
+
 def due_now(*, frequency: str, run_time: time, weekday: int | None,
             day_of_month: int | None, last_run_at: datetime | None,
             enabled: bool = True, now: datetime | None = None) -> bool:
-    """True when this slot has arrived and hasn't already fired. `last_run_at`
-    is stamped at fire time, so a failed/skipped slot never retries."""
+    """True when the most recent slot hasn't already fired — a job whose
+    slot passed while the service was down catches up on next tick.
+    `last_run_at` is stamped at fire/creation time, so a slot never fires
+    twice."""
     now = now or datetime.now(WIB)
     if not enabled:
         return False
-    slot = None
-    if frequency == "daily":
-        slot = _slot_on(now.date(), run_time)
-    elif frequency in ("weekly", "weekdays"):
-        if _weekday_ok(frequency, now.weekday(), weekday):
-            slot = _slot_on(now.date(), run_time)
-    elif frequency == "monthly":
-        if day_of_month is not None and now.day == day_of_month:
-            slot = _slot_on(now.date(), run_time)
-    if slot is None or now < slot:
+    slot = _last_slot(frequency=frequency, run_time=run_time,
+                      weekday=weekday, day_of_month=day_of_month, now=now)
+    if slot is None:
         return False
     return last_run_at is None or last_run_at < slot
 

@@ -1,4 +1,4 @@
-# sectors-agent — Backend Design Spec
+# iori — Backend Design Spec
 
 > **Superseded** — historical document kept for reference. The shipped code
 > differs (Python 3.10 container, newer endpoint set, current layout); the

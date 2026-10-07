@@ -1,7 +1,7 @@
 """ID/EN formatting for figures — Indonesian first, English mirror."""
 
 from datetime import date
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 _MONTHS = {
@@ -35,7 +35,8 @@ def idr(value: Any, lang: str = "id") -> str:
 
 
 def pct(ratio: Any, lang: str = "id") -> str:
-    return _fixed(Decimal(str(ratio)) * 100, 2, lang) + "%"
+    d = Decimal(str(ratio)) * 100
+    return ("−" if d < 0 else "") + _fixed(d, 2, lang) + "%"
 
 
 def pct_raw(percent_units: Any, lang: str = "id") -> str:
@@ -43,11 +44,15 @@ def pct_raw(percent_units: Any, lang: str = "id") -> str:
 
 
 def points(ratio: Any, lang: str = "id") -> str:
-    return _fixed(Decimal(str(ratio)) * 100, 2, lang)
+    d = Decimal(str(ratio)) * 100
+    return ("−" if d < 0 else "") + _fixed(d, 2, lang)
 
 
 def day(value: Any, lang: str = "id") -> str:
-    d = value if isinstance(value, date) else date.fromisoformat(str(value)[:10])
+    try:
+        d = value if isinstance(value, date) else date.fromisoformat(str(value)[:10])
+    except (ValueError, TypeError):
+        return "—"
     return f"{d.day} {_MONTHS[lang][d.month - 1]} {d.year}"
 
 
@@ -56,12 +61,15 @@ def figure(fig: dict, lang: str = "id") -> str:
     if value is None:
         return "—"
     unit = fig.get("unit")
-    if unit == "IDR":
-        return idr(value, lang)
-    if unit == "ratio":
-        return pct(value, lang)
-    if unit == "date":
-        return day(value, lang)
-    if unit == "days":
-        return f"{value} hari" if lang == "id" else f"{value} days"
-    return number(value, lang)
+    try:
+        if unit == "IDR":
+            return idr(value, lang)
+        if unit == "ratio":
+            return pct(value, lang)
+        if unit == "date":
+            return day(value, lang)
+        if unit == "days":
+            return f"{value} hari" if lang == "id" else f"{value} days"
+        return number(value, lang)
+    except (InvalidOperation, ValueError, TypeError):
+        return "—"

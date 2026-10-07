@@ -104,10 +104,16 @@ def placeholder_values(ev: dict, figures: dict, lang: str) -> dict[str, str]:
     values = {"symbol": ev["symbol"], "shares": fmt.number(ev["shares"], lang)}
     for key in _ROW_MONEY:
         if row.get(key) is not None:
-            values[key] = fmt.idr(row[key], lang)
+            try:
+                values[key] = fmt.idr(row[key], lang)
+            except Exception:
+                pass  # unformattable → key absent → drafts using it get rejected
     for key in _ROW_NUMBER:
         if row.get(key) is not None:
-            values[key] = fmt.number(row[key], lang)
+            try:
+                values[key] = fmt.number(row[key], lang)
+            except Exception:
+                pass
     for key in _ROW_DATES:
         if row.get(key):
             values[key] = fmt.day(row[key], lang)
@@ -175,8 +181,17 @@ async def produce(ev: dict, figures: dict, found: list[dict]) -> dict:
             break
         reasons = gate.check(draft, allowed, finding_ids)
         if not reasons:
-            summary = render(draft, ev, figures)["summary_id"]
-            reasons = await gate.judge(summary, [f.get("text_id", "") for f in found])
+            # Judge every user-visible field, not just summary_id — advice can
+            # hide in a headline or a verify bullet just as easily.
+            rendered = render(draft, ev, figures)
+            joined = "\n".join(
+                [
+                    rendered["headline_id"], rendered["headline_en"],
+                    rendered["summary_id"], rendered["summary_en"],
+                    *rendered["verify_id"], *rendered["verify_en"],
+                ]
+            )
+            reasons = await gate.judge(joined, [f.get("text_id", "") for f in found])
         if not reasons:
             accepted = draft
             break

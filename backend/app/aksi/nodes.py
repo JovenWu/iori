@@ -7,6 +7,7 @@ it costs zero further credits when every tool hits the cache.
 
 import asyncio
 import json
+import logging
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -17,6 +18,8 @@ from app.core.config import settings
 from app.core.llm import get_chat_model
 from app.aksi import briefs, budget, calc, events, findings, sources, store
 from app.sectors import tools as st
+
+logger = logging.getLogger(__name__)
 
 INVESTIGATE_ALLOW = {
     "sectors_news", "sectors_broker_top", "sectors_insider_filings",
@@ -86,14 +89,20 @@ def _step(node: str, ev: dict | None = None) -> dict:
     return {"node": node, **({"event_id": ev["id"]} if ev else {})}
 
 
-def _clamp(args: dict, as_of: date) -> dict:
+def _clamp(args: dict, as_of: date, symbol: str, name: str) -> dict:
     """Anti-lookahead for replays: no tool window may end after `as_of`, and
-    `refresh` is never forwarded (the aksi pipeline reads through the cache)."""
+    `refresh` is never forwarded (the aksi pipeline reads through the cache).
+    Queries are also pinned to the event's ticker so an investigation can't
+    drift credits onto unrelated stocks."""
     out = dict(args)
     if out.get("end") and str(out["end"])[:10] > as_of.isoformat():
         out["end"] = as_of.isoformat()
     if isinstance(out.get("year"), int) and out["year"] > as_of.year:
         out["year"] = as_of.year
+    if name == "sectors_news":
+        out["symbols"] = symbol
+    else:
+        out["symbol"] = symbol
     out.pop("refresh", None)
     return out
 
@@ -115,7 +124,9 @@ async def scan(state: dict, config) -> dict:
     for ev in picked:
         await emit(config, "event_found", events.public(ev))
     return {"events": picked, "cursor": 0,
-            "credits_used": state["credits_used"] + spent}
+            "credits_used": state["credits_used"] + spent,
+            # A failed calendar read must not look like "no events" downstream.
+            "scan_failed": env.get("status") != 200}
 
 
 async def load_pack(state: dict, config) -> dict:
@@ -125,6 +136,10 @@ async def load_pack(state: dict, config) -> dict:
     pack: dict[str, dict] = {}
     spent = 0
     for key in PACK.get(ev["kind"], ()):
+        # Hard budget: the cap is real, not advisory — remaining keys stay
+        # unfetched and their findings come out as gaps.
+        if state["credits_used"] + spent >= state["budget"]:
+            break
         name = _PACK_TOOL[key]
         await emit_tool(config, name, "call", args=_pack_args(key, ev["symbol"], as_of))
         pack[key] = await _PACK_FETCH[key](**_pack_args(key, ev["symbol"], as_of))
@@ -185,10 +200,21 @@ async def investigate(state: dict, config) -> dict:
                 messages.append(ToolMessage(content="budget exhausted",
                                             tool_call_id=call["id"]))
                 continue
-            args = _clamp(call.get("args") or {}, as_of)
+            args = _clamp(call.get("args") or {}, as_of, ev["symbol"], call["name"])
             await emit_tool(config, call["name"], "call", args=args)
-            out = await tool.ainvoke(args)
-            envelope = json.loads(out) if isinstance(out, str) else out
+            try:
+                out = await tool.ainvoke(args)
+                envelope = json.loads(out) if isinstance(out, str) else out
+                if not isinstance(envelope, dict):
+                    raise ValueError("tool returned non-object")
+            except Exception:
+                # One bad call must not kill the run — report it as a tool
+                # error so the model can move on.
+                await emit_tool(config, call["name"], "error")
+                messages.append(ToolMessage(content="tool failed",
+                                            tool_call_id=call["id"]))
+                calls += 1
+                continue
             spent += budget.cost(call["name"], args, envelope)
             calls += 1
             extra.append({"tool": call["name"], "args": args, "envelope": envelope})
@@ -209,12 +235,33 @@ async def brief(state: dict, config) -> dict:
     await emit(config, "step", _step("brief", ev))
     for f in found:
         await emit(config, "finding", {"event_id": ev["id"], **findings.public(f)})
-    result = await briefs.produce(ev, figs, found)
+    # produce() can raise (unknown event kind, malformed JEV verdict) — one
+    # poisoned event must not sink every remaining event's brief.
+    try:
+        result = await briefs.produce(ev, figs, found)
+    except Exception:
+        logger.exception("aksi brief failed for %s — template fallback", ev.get("id"))
+        result = _brief_fallback(ev, figs, found)
     await emit(config, "brief", {"event_id": ev["id"], **result})
     saved = {"event": events.public(ev), "figures": figs,
              "findings": [findings.public(f) for f in found], "brief": result}
     await store.append_event(state["report_id"], saved, state["credits_used"])
     return {"work": {}, "results": [saved], "cursor": state["cursor"] + 1}
+
+
+def _brief_fallback(ev: dict, figs: dict, found: list[dict]) -> dict:
+    """Deterministic template brief for when produce() itself crashes — keeps
+    the card renderable (gate flag set) instead of erroring the whole run."""
+    try:
+        out = briefs.render(briefs.template(ev), ev, figs)
+        out["context_ids"] = [f["id"] for f in found]
+    except Exception:  # unknown kind has no template either — minimal shell
+        logger.exception("aksi brief template failed for %s", ev.get("id"))
+        out = {"headline_id": "", "headline_en": "", "summary_id": "",
+               "summary_en": "", "verify_id": [], "verify_en": [],
+               "context_ids": [f["id"] for f in found]}
+    out["gate"] = {"passed": False, "reasons": ["brief_error"], "template": True}
+    return out
 
 
 async def finish(state: dict, config) -> dict:

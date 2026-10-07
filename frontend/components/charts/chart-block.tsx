@@ -399,7 +399,9 @@ export const ChartBlock = memo(function ChartBlock({
 }: {
   spec: ChartSpec;
 }) {
-  if (!spec?.data?.length) return null;
+  // Malformed spec from the server — no rows or no series means nothing
+  // renderable; bail instead of crashing on series[0].
+  if (!spec?.data?.length || !spec.series?.length) return null;
   switch (spec.kind) {
     case "area":
       return <SeriesChart spec={spec} variant="area" />;

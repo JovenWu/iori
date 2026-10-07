@@ -7,9 +7,16 @@ operators, comprehensions, lambdas, and a fixed set of numeric helpers. No
 attribute access (blocks dunder escapes and method calls — use `get` and
 subscripting), no statements, no imports, and every name resolves inside the
 provided env only.
+
+Resource abuse is bounded three ways: `**`/builtin `pow` are banned (bigint
+exponentiation is a CPU bomb; `pow` resolves to `math.pow`, whose doubles
+overflow fast), `range` is size-capped, and the eval runs off the event loop
+behind a wall-clock timeout. A timed-out expression can't be killed — the
+thread burns until it finishes — but the loop stays responsive.
 """
 
 import ast
+import asyncio
 import json
 import math
 import statistics
@@ -19,6 +26,9 @@ from langchain_core.tools import tool
 
 _MAX_EXPR_CHARS = 2000
 _MAX_RESULT_CHARS = 8000
+_EVAL_TIMEOUT_S = 3.0
+_MAX_RANGE = 1_000_000
+_MAX_INT_LITERAL = 10**18
 
 
 def _pluck(rows: Any, key: str) -> list:
@@ -32,20 +42,29 @@ def _get(obj: Any, key: str, default: Any = None) -> Any:
     return obj.get(key, default) if isinstance(obj, dict) else default
 
 
+def _range(*args: int) -> range:
+    """range() with a ceiling — an unbounded range iterated by sum/comprehension
+    is a CPU bomb."""
+    r = range(*args)
+    if len(r) > _MAX_RANGE:
+        raise ValueError(f"range exceeds {_MAX_RANGE} elements")
+    return r
+
+
 _ENV = {
     # builtins — numeric/collection only, no I/O or introspection
     "abs": abs, "all": all, "any": any, "bool": bool, "dict": dict,
     "enumerate": enumerate, "filter": filter, "float": float, "int": int,
     "len": len, "list": list, "map": map, "max": max, "min": min,
-    "range": range, "reversed": reversed, "round": round, "set": set,
+    "range": _range, "reversed": reversed, "round": round, "set": set,
     "sorted": sorted, "str": str, "sum": sum, "tuple": tuple, "zip": zip,
     # statistics
     "mean": statistics.mean, "median": statistics.median,
     "pstdev": statistics.pstdev, "stdev": statistics.stdev,
     "variance": statistics.variance,
-    # math
+    # math — math.pow overflows to inf/OverflowError fast, unlike builtin pow
     "ceil": math.ceil, "exp": math.exp, "floor": math.floor,
-    "log": math.log, "log10": math.log10, "pow": pow, "sqrt": math.sqrt,
+    "log": math.log, "log10": math.log10, "pow": math.pow, "sqrt": math.sqrt,
     # helpers
     "get": _get, "pluck": _pluck,
     # constants
@@ -60,7 +79,7 @@ _ALLOWED_NODES = (
     ast.Call, ast.keyword,
     ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp,
     ast.comprehension, ast.Lambda, ast.arguments, ast.arg,
-    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow,
+    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod,
     ast.UAdd, ast.USub, ast.Not, ast.And, ast.Or,
     ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
     ast.In, ast.NotIn, ast.Is, ast.IsNot,
@@ -90,6 +109,24 @@ async def compute(expression: str, data: Any = None) -> str:
     for node in ast.walk(tree):
         if not isinstance(node, _ALLOWED_NODES):
             return json.dumps({"error": f"disallowed: {type(node).__name__}"})
+        if isinstance(node, ast.Constant) and isinstance(node.value, int) \
+                and abs(node.value) > _MAX_INT_LITERAL:
+            return json.dumps({"error": "int literal too large"})
+        # `seq * n` can allocate unbounded memory even with the int-literal
+        # cap — bound a large literal multiplier unless the other side is a
+        # plain int too (scalar product, caught by the result cap anyway).
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+            for side, other in ((node.left, node.right), (node.right, node.left)):
+                if (
+                    isinstance(side, ast.Constant)
+                    and isinstance(side.value, int)
+                    and abs(side.value) > _MAX_RANGE
+                    and not (
+                        isinstance(other, ast.Constant)
+                        and isinstance(other.value, int)
+                    )
+                ):
+                    return json.dumps({"error": "sequence repetition too large"})
     if isinstance(data, str):  # models may hand back a raw envelope string
         try:
             data = json.loads(data)
@@ -97,7 +134,14 @@ async def compute(expression: str, data: Any = None) -> str:
             pass
     env = {**_ENV, "data": data, "__builtins__": {}}
     try:
-        result = eval(compile(tree, "<compute>", "eval"), env)  # noqa: S307
+        result = await asyncio.wait_for(
+            asyncio.to_thread(
+                eval, compile(tree, "<compute>", "eval"), env  # noqa: S307
+            ),
+            timeout=_EVAL_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        return json.dumps({"error": "timed_out"})
     except Exception as exc:
         return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
     try:

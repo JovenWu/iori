@@ -1,5 +1,7 @@
 """Shared upstream fixtures for the Aksi tests — shapes per docs.sectors.app."""
 
+from types import SimpleNamespace
+
 from langchain_core.messages import AIMessage
 
 from app.aksi import briefs, gate, nodes
@@ -78,8 +80,15 @@ async def no_jev(state, questions):
     return None
 
 
+async def pass_jev(state, questions):
+    """JEV up and passing — the default for pipeline tests; the outage path
+    (no_jev) is exercised explicitly in test_aksi_gate."""
+    return SimpleNamespace(nouls={"advice": SimpleNamespace(noul=0.0),
+                                  "grounded": SimpleNamespace(noul=1.0)})
+
+
 def install_fakes(monkeypatch, calls: list | None = None) -> None:
     monkeypatch.setattr(client, "get", fake_get(calls))
     monkeypatch.setattr(nodes, "_investigator", FakeInvestigator())
     monkeypatch.setattr(briefs, "_writer", FakeWriter())
-    monkeypatch.setattr(gate, "jev_ask", no_jev)
+    monkeypatch.setattr(gate, "jev_ask", pass_jev)

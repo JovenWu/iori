@@ -604,13 +604,23 @@ async def sectors_news(
     """
     params: dict[str, Any] = {"extension": "idx", "limit": max(1, min(limit, 30))}
     if symbols:
-        params["symbols"] = ",".join(
-            sorted(s.strip().upper().removesuffix(".JK") for s in symbols.split(","))
-        )
+        syms = _norm_symbols(symbols)
+        if not syms:
+            return _err(
+                "invalid_symbols", symbols=symbols,
+                hint="comma-separated 4-letter IDX tickers, e.g. 'BBCA,BBRI'",
+            )
+        params["symbols"] = ",".join(sorted(syms))
     if sub_sector:
-        params["sub_sector"] = ",".join(
-            sorted(s.strip().lower() for s in sub_sector.split(","))
-        )
+        slugs = [
+            s for s in (_norm_slug(p) for p in sub_sector.split(",")) if s
+        ]
+        if not slugs:
+            return _err(
+                "invalid_sub_sector", sub_sector=sub_sector,
+                hint="comma-separated kebab-case slugs, e.g. banks",
+            )
+        params["sub_sector"] = ",".join(sorted(slugs))
     if keyword:
         params["keyword"] = keyword.strip()
     try:
@@ -650,7 +660,13 @@ async def sectors_broker_summary(
         return _err(window)
     params: dict[str, Any] = {"start": window[0], "end": window[1]}
     if broker_code:
-        params["broker_code"] = broker_code.strip().upper()
+        code = _norm_broker(broker_code)
+        if not code:
+            return _err(
+                "invalid_broker_code", broker_code=broker_code,
+                hint="2 letters, e.g. MG",
+            )
+        params["broker_code"] = code
     return await _call(
         "broker_summary", f"/v2/broker-summary/{sym}/",
         params, Freshness.EOD, 1, refresh,
@@ -1262,8 +1278,13 @@ async def sectors_free_float(
         if not slug:
             return _err(f"invalid_{key}", hint="kebab-case slug, e.g. banks")
         params[key] = slug
+    # Billed ~1 credit per 100 companies — the count is unknown until the
+    # response lands, so reserve the realistic ceiling (whole-market ≈ 1k
+    # rows → 10 credits; a taxonomy filter caps it near 3).
+    credits = 10 if not params else 3
     return await _call(
-        "free_float", "/v2/free-float/", params, Freshness.EOD, 1, refresh,
+        "free_float", "/v2/free-float/", params, Freshness.EOD, credits,
+        refresh,
     )
 
 
@@ -1514,7 +1535,9 @@ async def sectors_commodity_prices(
         refresh: Bypass the cache and fetch fresh data.
     """
     name = commodity.strip().title()
-    if not name:
+    # `name` lands in the URL path — letters/spaces/hyphens only, so "..",
+    # "/", "?" and "#" can never smuggle in extra path segments or a query.
+    if not re.fullmatch(r"[A-Za-z][A-Za-z \-]{0,38}", name):
         return _err("invalid_commodity", hint="e.g. Coal, Nickel, Gold")
     this_year = datetime.now(timezone.utc).year
     end = min(end_year or this_year, this_year)

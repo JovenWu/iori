@@ -48,34 +48,37 @@ export function EvidenceDrawer({ event }: { event: AksiEvent }) {
           <section>
             <h4 className="mb-2 text-xs font-medium text-muted-foreground">{t.figuresHeading}</h4>
             <div className="divide-y divide-border rounded-lg border border-border">
-              {figures.map((f) => (
-                <div key={f.key} className="space-y-1 px-3 py-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs text-muted-foreground">{figureLabel(f.key, lang, event.kind)}</span>
-                    <span className="font-mono">{formatFigure(f, lang)}</span>
+              {figures.map((f) => {
+                const inputs = f.inputs ?? {};
+                return (
+                  <div key={f.key} className="space-y-1 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs text-muted-foreground">{figureLabel(f.key, lang, event.kind)}</span>
+                      <span className="font-mono">{formatFigure(f, lang)}</span>
+                    </div>
+                    <div className="break-words font-mono text-[11px] text-muted-foreground">
+                      {humanizeVars(f.formula, lang)}
+                    </div>
+                    {Object.keys(inputs).length > 0 && (
+                      <dl className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                        {Object.entries(inputs).map(([k, v]) => (
+                          <span key={k}>
+                            {inputLabel(k, lang)} <span className="font-mono text-ink-muted">{formatInputValue(v, lang)}</span>
+                          </span>
+                        ))}
+                      </dl>
+                    )}
+                    {f.gap && <div className="break-words text-[11px] text-destructive">{gapText(f.gap, lang)}</div>}
                   </div>
-                  <div className="break-words font-mono text-[11px] text-muted-foreground">
-                    {humanizeVars(f.formula, lang)}
-                  </div>
-                  {Object.keys(f.inputs).length > 0 && (
-                    <dl className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-                      {Object.entries(f.inputs).map(([k, v]) => (
-                        <span key={k}>
-                          {inputLabel(k, lang)} <span className="font-mono text-ink-muted">{formatInputValue(v, lang)}</span>
-                        </span>
-                      ))}
-                    </dl>
-                  )}
-                  {f.gap && <div className="break-words text-[11px] text-destructive">{gapText(f.gap, lang)}</div>}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
-          {event.findings.length > 0 && (
+          {(event.findings ?? []).length > 0 && (
             <section>
               <h4 className="mb-2 text-xs font-medium text-muted-foreground">{t.contextHeading}</h4>
               <ul className="space-y-2">
-                {event.findings.map((f) => (
+                {(event.findings ?? []).map((f) => (
                   <li key={f.id} className="text-xs">
                     <span className="font-mono text-muted-foreground">{sourceLabel(f.source_tool, lang)}</span>
                     {f.fetched_at && (

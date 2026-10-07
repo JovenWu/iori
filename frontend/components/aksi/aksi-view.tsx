@@ -245,7 +245,7 @@ export function AksiView() {
           </div>
 
           <footer className="shrink-0 px-4 py-2 text-center">
-            <p className="text-[11px] text-muted-foreground/70">{t.disclaimer}</p>
+            <p className="text-[11px] text-muted-foreground">{t.disclaimer}</p>
           </footer>
         </div>
       </div>

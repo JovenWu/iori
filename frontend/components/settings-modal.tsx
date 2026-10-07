@@ -347,7 +347,7 @@ export function SettingsModal({
                   </div>
                   <SettingRow
                     title="Log out"
-                    description="Sign out of Sectors Agent on this device."
+                    description="Sign out of iori on this device."
                   >
                     <Button variant="outline" onClick={logout}>
                       <LogOutIcon className="size-4" />

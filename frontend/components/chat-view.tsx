@@ -55,8 +55,8 @@ export function ChatView({ threadId }: { threadId: string | null }) {
         onSend={(text) => useChatStore.getState().send(text)}
         onStop={() => useChatStore.getState().stop()}
       />
-      <p className="mt-1 text-center text-[11px] text-muted-foreground/70">
-        Sectors Agent can make mistakes — verify figures against official
+      <p className="mt-1 text-center text-[11px] text-muted-foreground">
+        iori can make mistakes — verify figures against official
         IDX disclosures.
       </p>
     </>

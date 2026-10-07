@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono, Jost } from "next/font/google";
 import { Providers } from "@/components/providers";
 import "./globals.css";
 
@@ -13,8 +13,13 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
 });
 
+const jost = Jost({
+  variable: "--font-jost",
+  subsets: ["latin"],
+});
+
 export const metadata: Metadata = {
-  title: "sectors-agent",
+  title: "iori — IDX market intelligence",
   description: "Agentic IDX market analysis — information, not advice.",
 };
 
@@ -24,7 +29,7 @@ const themeScript = `
 (function () {
   var theme = "dark";
   try {
-    var raw = window.localStorage.getItem("sectors-agent:settings");
+    var raw = window.localStorage.getItem("iori:settings");
     if (raw) theme = JSON.parse(raw).theme || "dark";
   } catch (e) {}
   var resolved = theme === "system"
@@ -40,7 +45,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      className={`${inter.variable} ${jetbrainsMono.variable} ${jost.variable} h-full antialiased`}
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />

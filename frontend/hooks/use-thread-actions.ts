@@ -133,11 +133,18 @@ export function useThreadActions() {
     const commit = () => {
       if (undone || committed) return;
       committed = true;
-      void deleteThread(threadId).catch((err) => {
-        console.error("Failed to delete thread:", err);
-        toast.error("Couldn't delete the thread");
-        void useThreadsStore.getState().refresh();
-      });
+      void deleteThread(threadId)
+        .then(() => {
+          useThreadsStore.getState().commitDeleted(threadId);
+        })
+        .catch((err) => {
+          console.error("Failed to delete thread:", err);
+          toast.error("Couldn't delete the thread");
+          // The row was tombstoned for the undo window — release it so the
+          // refresh below can restore it.
+          useThreadsStore.getState().unmarkDeleted(threadId);
+          void useThreadsStore.getState().refresh();
+        });
     };
     toast.success("Deleted thread", {
       duration: DELETE_UNDO_MS,
@@ -145,6 +152,7 @@ export function useThreadActions() {
         label: "Undo",
         onClick: () => {
           undone = true;
+          useThreadsStore.getState().unmarkDeleted(threadId);
           void useThreadsStore.getState().refresh();
         },
       },

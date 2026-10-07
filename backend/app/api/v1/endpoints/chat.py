@@ -14,6 +14,7 @@ from app.agent import service
 from app.agent.runs import RunLimitError, registry
 from app.api import deps
 from app.api.sse import sse_response
+from app.db.session import async_session_maker
 from app.models.thread import Thread
 from app.models.user import User
 from app.schedules import store as schedules_store
@@ -49,30 +50,31 @@ def _thread_dict(t: Thread, sched_ids: set[uuid.UUID]) -> dict:
 @router.post("/chat/stream")
 async def chat_stream(
     body: ChatStreamRequest,
-    current_user: User = Depends(deps.get_current_user),
-    db: AsyncSession = Depends(deps.get_db),
+    user_id: int = Depends(deps.get_current_user_id),
 ) -> Any:
     """Start a new turn. The run is detached: generation continues if the
     client disconnects; GET /threads/{id}/stream replays missed events."""
-    # Resolve (or create) the thread first so we can key the mutation lock.
+    # Auth + thread resolution run in a short-lived session — an SSE stream
+    # must not pin a pooled connection for its (unbounded) lifetime.
     try:
-        thread = await service.get_or_create_thread(
-            db, current_user.id, body.thread_id, body.message
-        )
+        async with async_session_maker() as db:
+            thread = await service.get_or_create_thread(
+                db, user_id, body.thread_id, body.message
+            )
+            if body.thread_id is not None:
+                await service.mark_thread_read(db, thread)
     except LookupError:
         raise HTTPException(status_code=404, detail="Thread not found")
     tid = str(thread.id)
-    if body.thread_id is not None:
-        await service.mark_thread_read(db, thread)
 
     async with service.thread_lock(tid):
         await registry.stop_and_wait(tid)  # a new turn supersedes any live run
         try:
-            run = registry.start_run(current_user.id, tid)
+            run = registry.start_run(user_id, tid)
         except RunLimitError as exc:
             raise HTTPException(status_code=429, detail=str(exc))
         run.task = asyncio.create_task(
-            service.run_turn(run, current_user.id, tid, body.message, body.lang)
+            service.run_turn(run, user_id, tid, body.message, body.lang)
         )
         # Buffered — subscribers replay it; lets clients stop a fresh thread's
         # first run before done/stopped carries the id. started_at anchors the
@@ -88,11 +90,11 @@ async def chat_stream(
 async def thread_stream(
     thread_id: uuid.UUID,
     last_seq: int = Query(0, ge=0),
-    current_user: User = Depends(deps.get_current_user),
-    db: AsyncSession = Depends(deps.get_db),
+    user_id: int = Depends(deps.get_current_user_id),
 ) -> Any:
     """Re-attach to a run (or replay a finished one within its linger window)."""
-    thread = await service.get_thread(db, current_user.id, thread_id)
+    async with async_session_maker() as db:
+        thread = await service.get_thread(db, user_id, thread_id)
     if thread is None:
         raise HTTPException(status_code=404, detail="Thread not found")
     run = registry.get(str(thread_id))
@@ -190,6 +192,9 @@ async def delete_thread(
     db: AsyncSession = Depends(deps.get_db),
 ) -> Any:
     tid = str(thread_id)
+    # Verify ownership first — stop_and_wait must not kill another user's run.
+    if await service.get_thread(db, current_user.id, thread_id) is None:
+        raise HTTPException(status_code=404, detail="Thread not found")
     async with service.thread_lock(tid):
         await registry.stop_and_wait(tid)
         deleted = await service.delete_thread(db, current_user.id, thread_id)

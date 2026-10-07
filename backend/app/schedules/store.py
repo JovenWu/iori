@@ -8,7 +8,7 @@ from sqlalchemy import select, update
 from app.db.session import async_session_maker
 from app.models.scheduled_job import ScheduledJob
 from app.models.thread import Thread
-from app.schedules.due import due_now, next_run_at, normalize_cadence
+from app.schedules.due import WIB, due_now, next_run_at, normalize_cadence
 
 
 async def create_job(user_id: int, *, name: str, prompt: str, frequency: str,
@@ -20,10 +20,13 @@ async def create_job(user_id: int, *, name: str, prompt: str, frequency: str,
         # the sidebar title.
         thread = Thread(user_id=user_id, title=name)
         db.add(thread)
+        # Stamping creation as the last run means a job created after today's
+        # slot waits for the next one — it never "catches up" a slot that was
+        # over before it existed.
         job = ScheduledJob(
             user_id=user_id, name=name, prompt=prompt, frequency=freq,
             run_time=run_time or time(17, 0), weekday=wd, day_of_month=dom,
-            thread=thread,
+            thread=thread, last_run_at=datetime.now(WIB),
         )
         db.add(job)
         await db.commit()

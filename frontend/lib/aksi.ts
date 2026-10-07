@@ -159,7 +159,7 @@ const VAR_LABEL: Record<string, Record<Lang, string>> = {
 };
 
 export function figureLabel(key: string, lang: Lang, kind?: EventKind): string {
-  const tile = kind ? copy[lang].tiles[kind].find((x) => x.key === key) : undefined;
+  const tile = kind ? copy[lang].tiles[kind]?.find((x) => x.key === key) : undefined;
   const label = tile?.label ?? FIGURE_LABEL[key]?.[lang];
   if (label) return label;
   const words = key.replaceAll("_", " ");
@@ -239,7 +239,7 @@ export function todayIso(): string {
 /** The deadline an event's `urgency` counts down to — mirrors the backend's
  * `_urgency` target per kind. Returns "YYYY-MM-DD" or null. */
 export function deadlineOf(ev: AksiEvent, asOf: string | null): string | null {
-  const row = ev.row;
+  const row = ev.row ?? {};
   let raw: unknown;
   if (ev.kind === "right_issue") raw = row.trading_period_end;
   else if (ev.kind === "warrant") raw = row.ex_per_end ?? row.maturity_date;
@@ -403,7 +403,7 @@ export const copy: Record<Lang, AksiCopy> = {
     scenarioLapseRest: (deadline, value) => `rights expire after ${deadline}, theoretical value of ${value} lost.`,
     verify: "What to verify",
     cardDisclaimer: "Educational information, not investment advice.",
-    disclaimer: "Sectors Agent can make mistakes — verify figures against official IDX disclosures.",
+    disclaimer: "iori can make mistakes — verify figures against official IDX disclosures.",
     sources: "View data sources",
     sourcesTitle: "data sources",
     sourcesDesc: "Every figure is computed by code from Sectors data — not by AI.",
@@ -513,7 +513,7 @@ export const copy: Record<Lang, AksiCopy> = {
     scenarioLapseRest: (deadline, value) => `hak hangus setelah ${deadline}, nilai teoretis hilang ${value}.`,
     verify: "Yang perlu kamu cek",
     cardDisclaimer: "Informasi edukatif, bukan rekomendasi investasi.",
-    disclaimer: "Sectors Agent dapat keliru — verifikasi angka pada keterbukaan resmi IDX.",
+    disclaimer: "iori dapat keliru — verifikasi angka pada keterbukaan resmi IDX.",
     sources: "Lihat sumber data",
     sourcesTitle: "sumber data",
     sourcesDesc: "Setiap angka dihitung oleh kode dari data Sectors — bukan oleh AI.",

@@ -36,6 +36,16 @@ _pool: AsyncConnectionPool | None = None
 _saver: AsyncPostgresSaver | None = None
 _graph = None
 _memory_sem: asyncio.Semaphore | None = None
+# Every fire-and-forget task (title generation, post-turn housekeeping) is
+# tracked here so shutdown can cancel them instead of orphaning them.
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def _spawn(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return task
 
 
 def _psycopg_dsn() -> str:
@@ -64,6 +74,11 @@ async def init_service() -> None:
 
 async def shutdown_service() -> None:
     global _pool, _saver, _graph, _memory_sem
+    for t in list(_bg_tasks):
+        t.cancel()
+    if _bg_tasks:
+        await asyncio.gather(*_bg_tasks, return_exceptions=True)
+    _bg_tasks.clear()
     if _pool is not None:
         await _pool.close()
     _pool = _saver = _graph = _memory_sem = None
@@ -308,8 +323,16 @@ async def run_turn(
     """Stream the graph for one turn into `run`'s buffer. Never raises."""
     # Title runs concurrently — independent of the answer and usually
     # committed before the stream closes.
-    asyncio.create_task(_ensure_title(user_id, thread_id, user_msg))
-    graph = get_graph()
+    _spawn(_ensure_title(user_id, thread_id, user_msg))
+    try:
+        graph = get_graph()
+    except Exception:
+        # Uninitialized service must still close the run — an unhandled raise
+        # here would leave it active (and un-stoppable) forever.
+        logger.exception("run_turn: graph unavailable for thread %s", thread_id)
+        run.emit("error", "Generation failed.")
+        registry.finish(run)
+        return
     config = {
         "configurable": {"thread_id": thread_id, "user_id": user_id, "lang": lang}
     }
@@ -365,7 +388,10 @@ async def run_turn(
                                     "tool",
                                     {"name": getattr(m, "name", "tool"), "status": "done"},
                                 )
-        answer = accumulated or final_answer
+        # The last complete agent message is the answer; the token stream is
+        # the fallback (it can glue an earlier "let me check" preamble to the
+        # final reply).
+        answer = final_answer or accumulated
         run.emit("done", {"answer": answer, "thread_id": thread_id})
     except asyncio.CancelledError:
         # Stop requested: checkpoint whatever partial answer accumulated.
@@ -381,8 +407,15 @@ async def run_turn(
         logger.exception("run_turn failed for thread %s", thread_id)
         run.emit("error", "Generation failed.")
     finally:
+        # Snapshot the checkpoint BEFORE the run closes — a superseding turn
+        # may start writing the moment run.done flips, and _post_turn must
+        # pair this turn's messages, not the next one's.
+        try:
+            state = await graph.aget_state(config)
+        except Exception:
+            state = None
         registry.finish(run)
-        asyncio.create_task(_post_turn(user_id, thread_id))
+        _spawn(_post_turn(user_id, thread_id, state))
 
 
 # ---------------------------------------------------------------------------
@@ -434,13 +467,15 @@ async def _ensure_title(user_id: int, thread_id: str, user_msg: str) -> None:
         logger.exception("_ensure_title failed for thread %s", thread_id)
 
 
-async def _post_turn(user_id: int, thread_id: str) -> None:
-    """Memory extraction + digest refresh + title. Best-effort, never raises."""
-    assert _memory_sem is not None
+async def _post_turn(user_id: int, thread_id: str, state=None) -> None:
+    """Memory extraction + digest refresh + title. Best-effort, never raises.
+    `state` is the turn-end checkpoint snapshot taken by run_turn — reading
+    live state here could pair this turn's housekeeping with the NEXT turn's
+    half-written messages."""
+    if _memory_sem is None:
+        return
     async with _memory_sem:
         try:
-            config = {"configurable": {"thread_id": thread_id}}
-            state = await get_graph().aget_state(config)
             values = state.values if state else {}
             messages: Sequence[BaseMessage] = values.get("messages", [])
             if len(messages) < 2:

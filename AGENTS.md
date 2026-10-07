@@ -1,4 +1,4 @@
-# Sectors Agent — project rules
+# iori — project rules
 
 ## Git
 
@@ -8,7 +8,8 @@
 
 ## Dev commands
 
-- Full stack (Docker): `docker compose up -d` from the repo root — Postgres on :5433, backend on :8000 (runs `alembic upgrade head` then `uvicorn --reload`), frontend on :3000 (Next dev, webpack — Turbopack's watcher misses edits through Docker Desktop mounts). Rebuild after dependency changes: `docker compose up -d --build`.
+- Full stack (Docker): `docker compose up -d` from the repo root — Postgres on :5433 (localhost-bound; `POSTGRES_BIND=0.0.0.0` to expose), backend on :8000 (runs `alembic upgrade head` then `uvicorn --reload`), frontend on :3000 (Next dev, webpack — Turbopack's watcher misses edits through Docker Desktop mounts). Rebuild after dependency changes: `docker compose up -d --build`. Postgres credentials come from `backend/.env` (single source for both services).
+- Production: `docker compose -f docker-compose.prod.yml up -d --build` — baked images (`backend/Dockerfile.prod`, `frontend/Dockerfile`), no bind mounts, no `--reload`/`next dev`, non-root users, Postgres not published. Requires `ENVIRONMENT=production` + strong `SECRET_KEY` + non-default credentials in `backend/.env`; `NEXT_PUBLIC_API_URL` is a frontend build arg.
 - Backend tests: `docker compose exec backend python -m pytest tests`.
 - Frontend checks: `docker compose exec frontend npx tsc --noEmit`, `docker compose exec frontend npx eslint .`, `docker compose exec frontend npm run build`.
 

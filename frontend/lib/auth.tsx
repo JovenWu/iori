@@ -8,6 +8,7 @@ import {
   useCallback,
 } from "react"
 import {
+  ApiError,
   clearTokens,
   getAccessToken,
   getMe,
@@ -47,25 +48,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAuthPage = pathname === "/login"
   const isLoading = !hydrated || (Boolean(token) && !user)
 
+  const clearSession = useCallback(() => {
+    clearTokens()
+    // Session is dead — drop cached app state so a fresh login never sees
+    // the previous user's threads, chat, or corporate-action board.
+    resetChatStore()
+    resetThreadsStore()
+    resetAksiStore()
+    resetSchedulesStore()
+    setToken(null)
+    setUser(null)
+  }, [])
+
   const fetchUser = useCallback(async () => {
     try {
       const userData = await getMe()
       setUser(userData)
       storeAuthUser(userData)
       return true
-    } catch {
-      clearTokens()
-      // Session is dead — drop cached app state so a fresh login never sees
-      // the previous user's threads, chat, or corporate-action board.
-      resetChatStore()
-      resetThreadsStore()
-      resetAksiStore()
-      resetSchedulesStore()
-      setToken(null)
-      setUser(null)
+    } catch (err) {
+      // apiFetch already attempted a refresh — a 401/403 here means both
+      // tokens are dead and the session is truly over. Anything else
+      // (backend down, network blip) is transient: keep the token and the
+      // cached identity so a hiccup doesn't force a logout.
+      const sessionDead =
+        err instanceof ApiError && (err.status === 401 || err.status === 403)
+      const cached = getStoredUser()
+      if (sessionDead || !cached) {
+        clearSession()
+      } else {
+        setUser(cached)
+      }
       return false
     }
-  }, [])
+  }, [clearSession])
 
   // Restore the persisted session once, after mount. Deferred a tick so the
   // updates don't run synchronously inside the effect body.
@@ -117,14 +133,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     void apiLogout()
-    resetChatStore()
-    resetThreadsStore()
-    resetAksiStore()
-    resetSchedulesStore()
-    setToken(null)
-    setUser(null)
+    clearSession()
     router.replace("/login")
-  }, [router])
+  }, [clearSession, router])
 
   return (
     <AuthContext.Provider value={{ token, user, isLoading, login, register, logout }}>

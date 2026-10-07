@@ -46,9 +46,15 @@ async def run_check(run: AgentRun, user_id: int, as_of: date | None,
             async for values in aksi_graph.astream(state, config, stream_mode="values"):
                 last = values
         credits = last.get("credits_used", 0)
-        await store.finish_report(report_id, "done", credits)
-        run.emit("done", {"report_id": report_id, "events": len(last.get("results", [])),
-                          "credits_spent": credits})
+        if last.get("scan_failed"):
+            # The calendar read failed — "no events" would be a false answer.
+            await store.finish_report(report_id, "error", credits)
+            run.emit("error", "Market calendar unavailable.")
+        else:
+            await store.finish_report(report_id, "done", credits)
+            run.emit("done", {"report_id": report_id,
+                              "events": len(last.get("results", [])),
+                              "credits_spent": credits})
     except asyncio.CancelledError:
         if report_id:
             await store.finish_report(report_id, "stopped", last.get("credits_used"))

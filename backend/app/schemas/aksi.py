@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.aksi.budget import DEFAULT_BUDGET
+from app.aksi.events import today_wib
 
 _SYMBOL = re.compile(r"^[A-Z]{4}$")
 _MIN_DATE = date(2021, 1, 1)
@@ -20,7 +21,8 @@ def normalize_symbol(v: Any) -> str:
 
 
 def _check_as_of(v: date | None) -> date | None:
-    if v is not None and not (_MIN_DATE <= v <= date.today()):
+    # "Today" is the market's day (WIB), not the server's local date.
+    if v is not None and not (_MIN_DATE <= v <= today_wib()):
         raise ValueError("as_of must be between 2021-01-01 and today")
     return v
 
@@ -101,3 +103,6 @@ class ImpactOut(BaseModel):
     events: list[dict[str, Any]]
     fetched_at: str | None = None
     note: str
+    # True when the calendar read failed — empty `events` is then "unknown",
+    # not "nothing pending".
+    upstream_error: bool = False

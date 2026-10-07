@@ -1,6 +1,6 @@
-# sectors-agent frontend
+# iori frontend
 
-Next.js 16 + React 19 + Tailwind 4 client for the sectors-agent backend — chat
+Next.js 16 + React 19 + Tailwind 4 client for the iori backend — chat
 with the IDX analysis agent (streamed tool calls, charts, reasoning) plus the
 Aksi Korporasi corporate-action page. See the root `README.md` for the full
 picture.

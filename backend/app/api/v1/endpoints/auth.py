@@ -1,3 +1,4 @@
+import asyncio
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -49,7 +50,10 @@ async def _login_user(db: AsyncSession, username: str, password: str) -> User:
     its row); any other username is a registered account verified against its
     stored bcrypt hash."""
     if username == settings.APP_USERNAME:
-        if not secrets.compare_digest(password, settings.APP_PASSWORD):
+        # bytes — str compare_digest rejects non-ASCII input.
+        if not secrets.compare_digest(
+            password.encode(), settings.APP_PASSWORD.encode()
+        ):
             raise _bad_credentials()
         result = await db.execute(
             select(User).where(User.username == settings.APP_USERNAME)
@@ -63,11 +67,17 @@ async def _login_user(db: AsyncSession, username: str, password: str) -> User:
     else:
         result = await db.execute(select(User).where(User.username == username))
         user = result.scalars().first()
-        if (
-            user is None
-            or user.hashed_password is None
-            or not security.verify_password(password, user.hashed_password)
-        ):
+        # bcrypt raises on >72-byte passwords — treat as a bad credential, not
+        # a 500. The hash itself is CPU-heavy; keep it off the event loop.
+        ok = (
+            user is not None
+            and user.hashed_password is not None
+            and len(password.encode()) <= 72
+            and await asyncio.to_thread(
+                security.verify_password, password, user.hashed_password
+            )
+        )
+        if not ok:
             raise _bad_credentials()
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
@@ -96,9 +106,18 @@ async def register(
     )
     if exists.scalar_one_or_none() is not None:
         raise taken
+    # bcrypt's hard ceiling is 72 BYTES — the schema's char cap allows longer
+    # multibyte strings, which would raise inside hash_password.
+    if len(body.password.encode()) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Password is too long",
+        )
     user = User(
         username=body.username,
-        hashed_password=security.hash_password(body.password),
+        hashed_password=await asyncio.to_thread(
+            security.hash_password, body.password
+        ),
         is_active=True,
     )
     db.add(user)

@@ -1,14 +1,17 @@
 services:
   db:
     image: pgvector/pgvector:pg16
-    container_name: sectors-agent-db
+    container_name: iori-db
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-sectors_agent}
+    # Credentials come from backend/.env so db and backend can't drift —
+    # compose ${VAR} interpolation only sees the project-root .env. Postgres
+    # hard-requires POSTGRES_PASSWORD there; USER/DB fall back to the image's
+    # own defaults if unset.
+    env_file: ./backend/.env
+    # Localhost-only by default — nothing outside this machine should reach
+    # Postgres. Set POSTGRES_BIND=0.0.0.0 explicitly if a LAN peer needs it.
     ports:
-      - "${POSTGRES_PORT:-5433}:5432"
+      - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,7 +22,7 @@ services:
 
   backend:
     build: ./backend
-    container_name: sectors-agent-backend
+    container_name: iori-backend
     restart: unless-stopped
     env_file: ./backend/.env
     environment:
@@ -38,7 +41,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
-    container_name: sectors-agent-frontend
+    container_name: iori-frontend
     restart: unless-stopped
     # Turbopack's watcher misses edits through Docker Desktop's mount layer;
     # webpack + watchpack polling (stat-based, no fs events needed) is the
