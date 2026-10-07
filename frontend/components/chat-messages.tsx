@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { TimerIcon } from "lucide-react";
+
 import { AgentStatus, type ToolActivity } from "@/components/agent-status";
 import { ChartBlock } from "@/components/charts/chart-block";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,6 +25,8 @@ export type Message = {
     durationMs?: number;
     runStartedAt?: number | null;
   };
+  /** The turn was fired by a scheduled job, not typed by the user. */
+  scheduled?: boolean;
   /** The prompt that produced this assistant message — used for retry. */
   prompt?: string;
   /** Model's reasoning summary — streamed live, persisted with history. */
@@ -34,7 +38,13 @@ export type Message = {
 const markdownClasses =
   "max-w-none text-sm leading-6 text-ink-muted [&_table]:w-full [&_table]:border-collapse [&_td]:border-b [&_td]:border-border [&_td]:px-2 [&_td]:py-1.5 [&_th]:border-b [&_th]:border-border [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-medium [&_a]:text-primary [&_code]:rounded [&_code]:bg-secondary [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-xs [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-secondary [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0";
 
-function UserBubble({ content }: { content: string }) {
+function UserBubble({
+  content,
+  scheduled,
+}: {
+  content: string;
+  scheduled?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [clamped, setClamped] = useState(false);
   const textRef = useRef<HTMLParagraphElement>(null);
@@ -48,30 +58,38 @@ function UserBubble({ content }: { content: string }) {
   }, [content]);
 
   return (
-    <div
-      className={cn(
-        "ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md border border-transparent bg-bubble px-3.5 py-2 text-sm text-bubble-foreground",
-        clamped && !expanded && "cursor-pointer",
+    <div className="ml-auto w-fit max-w-[85%]">
+      {scheduled && (
+        <div className="mb-1 flex items-center justify-end gap-1 text-[11px] font-medium text-muted-foreground">
+          <TimerIcon className="size-3" />
+          Scheduled
+        </div>
       )}
-      onClick={() => {
-        if (clamped) setExpanded((v) => !v);
-      }}
-      title={clamped ? (expanded ? "Collapse" : "Show more") : undefined}
-    >
-      <p
-        ref={textRef}
+      <div
         className={cn(
-          "whitespace-pre-wrap break-words",
-          !expanded && "line-clamp-3",
+          "rounded-2xl rounded-br-md border border-transparent bg-bubble px-3.5 py-2 text-sm text-bubble-foreground",
+          clamped && !expanded && "cursor-pointer",
         )}
+        onClick={() => {
+          if (clamped) setExpanded((v) => !v);
+        }}
+        title={clamped ? (expanded ? "Collapse" : "Show more") : undefined}
       >
-        {content}
-      </p>
-      {clamped && !expanded && (
-        <span className="mt-0.5 block text-[11px] font-medium text-muted-foreground">
-          Show more
-        </span>
-      )}
+        <p
+          ref={textRef}
+          className={cn(
+            "whitespace-pre-wrap break-words",
+            !expanded && "line-clamp-3",
+          )}
+        >
+          {content}
+        </p>
+        {clamped && !expanded && (
+          <span className="mt-0.5 block text-[11px] font-medium text-muted-foreground">
+            Show more
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -196,7 +214,7 @@ export function ChatMessages({
         {messages.map((msg) => (
           <div key={msg.id} data-msg={msg.id}>
             {msg.role === "user" ? (
-              <UserBubble content={msg.content} />
+              <UserBubble content={msg.content} scheduled={msg.scheduled} />
             ) : (
               <AssistantMessage msg={msg} onRetry={onRetry} />
             )}

@@ -30,6 +30,7 @@ function toMessages(messages: ChatMessage[]): Message[] {
     id: `h-${i}`,
     role: m.role === "user" ? "user" : "assistant",
     content: m.content,
+    scheduled: m.scheduled,
     reasoning: m.reasoning,
     charts: m.charts,
     run: m.tools?.length

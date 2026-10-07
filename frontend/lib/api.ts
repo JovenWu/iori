@@ -32,6 +32,8 @@ export type Thread = {
 export type ChatMessage = {
   role: string;
   content: string;
+  /** The turn was fired by a scheduled job, not typed by the user. */
+  scheduled?: boolean;
   /** Reasoning summary the model produced — history form of the live
    * `reasoning` stream events. */
   reasoning?: string;
@@ -336,3 +338,52 @@ export const getLatestReport = (mode?: "live" | "replay", asOf?: string) => {
   const q = params.toString();
   return apiFetch<Report>(`/aksi/reports/latest${q ? `?${q}` : ""}`);
 };
+
+/* Scheduled jobs — recurring prompts fired as normal agent turns. */
+
+export type ScheduleJob = {
+  id: string;
+  name: string;
+  prompt: string;
+  frequency: "daily" | "weekly" | "monthly";
+  /** "HH:MM:SS" — WIB wall-clock. */
+  run_time: string;
+  /** 0=Mon … 6=Sun (weekly only). */
+  weekday: number | null;
+  /** 1-28 (monthly only). */
+  day_of_month: number | null;
+  enabled: boolean;
+  thread_id: string;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  created_at: string;
+};
+
+export type ScheduleInput = {
+  name: string;
+  prompt: string;
+  frequency: "daily" | "weekly" | "monthly";
+  /** "HH:MM" — defaults to 17:00 WIB server-side. */
+  run_time?: string | null;
+  weekday?: number | null;
+  day_of_month?: number | null;
+};
+
+export const listSchedules = () => apiFetch<ScheduleJob[]>("/schedules");
+export const createSchedule = (body: ScheduleInput) =>
+  apiFetch<ScheduleJob>("/schedules", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+export const updateSchedule = (
+  id: string,
+  patch: Partial<ScheduleInput & { enabled: boolean }>,
+) =>
+  apiFetch<ScheduleJob>(`/schedules/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+export const deleteSchedule = (id: string) =>
+  apiFetch<{ detail: string }>(`/schedules/${id}`, { method: "DELETE" });
+export const runScheduleNow = (id: string) =>
+  apiFetch<{ status: string }>(`/schedules/${id}/run`, { method: "POST" });

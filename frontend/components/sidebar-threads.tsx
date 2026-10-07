@@ -21,6 +21,7 @@ import {
   MessageCircleIcon,
   MoreHorizontalIcon,
   SquarePlus,
+  TimerIcon,
 } from "lucide-react";
 import type { Thread } from "@/lib/api";
 import { markdownToPlainText } from "@/lib/markdown";
@@ -197,6 +198,21 @@ export function SidebarThreads() {
             {urgentCount > 0 && (
               <SidebarMenuBadge className="font-mono">{urgentCount}</SidebarMenuBadge>
             )}
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              tooltip="Schedules"
+              isActive={pathname === "/schedules"}
+              className="h-10 px-4"
+            >
+              <Link href="/schedules">
+                <TimerIcon />
+                <span className="group-data-[collapsible=icon]:hidden">
+                  Schedules
+                </span>
+              </Link>
+            </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
 

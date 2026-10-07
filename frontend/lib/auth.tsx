@@ -19,6 +19,7 @@ import {
 } from "@/lib/api"
 import { resetAksiStore } from "@/lib/stores/aksi"
 import { resetChatStore } from "@/lib/stores/chat"
+import { resetSchedulesStore } from "@/lib/stores/schedules"
 import { resetThreadsStore } from "@/lib/stores/threads"
 import { useRouter, usePathname } from "next/navigation"
 
@@ -57,6 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       resetChatStore()
       resetThreadsStore()
       resetAksiStore()
+      resetSchedulesStore()
       setToken(null)
       setUser(null)
       return false
@@ -106,6 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     resetChatStore()
     resetThreadsStore()
     resetAksiStore()
+    resetSchedulesStore()
     setToken(null)
     setUser(null)
     router.replace("/login")
