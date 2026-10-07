@@ -21,7 +21,7 @@ export function SidebarHeaderContent() {
               alt="Sectors Agent logo"
               width={32}
               height={32}
-              className="drop-shadow-[0_2px_5px_rgb(94_106_210/0.45)]"
+              className="drop-shadow-[0_2px_5px_rgb(62_198_173/0.45)]"
             />
           </div>
           <div className="grid flex-1 text-left text-sm leading-tight shrink-0 group-data-[collapsible=icon]:hidden">

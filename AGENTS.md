@@ -16,7 +16,7 @@
 
 - After making code changes, always invoke `/code-simplifier` to audit and refine them before finishing.
 - Design rules live in `DESIGN.md`; product intent in `PRODUCT.md`.
-- Dark canvas + lavender accent; no bright/yellow accents; dark-first theming.
+- Dark canvas + teal accent; no warm/bright/yellow accents; dark-first theming.
 
 ## Active feature — Aksi Korporasi Copilot (phase 14)
 

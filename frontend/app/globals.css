@@ -50,7 +50,7 @@
   --radius-2xl: calc(var(--radius) * 1.8);
 }
 
-/* Light palette — near-white canvas, dark ink, the same lavender accent. */
+/* Light palette — near-white canvas, dark ink, the same teal accent. */
 :root {
   --background: #ffffff;
   --foreground: #1a1b1e;
@@ -58,8 +58,8 @@
   --card-foreground: #1a1b1e;
   --popover: #ffffff;
   --popover-foreground: #1a1b1e;
-  --primary: #5e6ad2;
-  --primary-hover: #4b56b8;
+  --primary: #0f766e;
+  --primary-hover: #0d5f59;
   --primary-foreground: #ffffff;
   --secondary: #f0f1f2;
   --secondary-foreground: #1a1b1e;
@@ -70,24 +70,24 @@
   --destructive: #d4443c;
   --border: #e2e3e6;
   --input: #e2e3e6;
-  --ring: #5e69d1;
+  --ring: #0f766e;
   --surface-2: #f0f1f2;
   --surface-3: #e9ebed;
   --ink-muted: #3c4046;
   --ink-subtle: #6b6f76;
   --ink-tertiary: #9a9ea6;
   --hairline-strong: #d3d5d9;
-  --bubble: #5e6ad2;
+  --bubble: #0f766e;
   --bubble-foreground: #ffffff;
   --radius: 0.75rem;
   --sidebar: #f7f8f8;
   --sidebar-foreground: #3c4046;
-  --sidebar-primary: #5e6ad2;
+  --sidebar-primary: #0f766e;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #eceef0;
   --sidebar-accent-foreground: #1a1b1e;
   --sidebar-border: #e2e3e6;
-  --sidebar-ring: #5e69d1;
+  --sidebar-ring: #0f766e;
 }
 
 /* Dark palette — the product's primary surface. The sidebar variant is
@@ -100,9 +100,9 @@
   --card-foreground: #f7f8f8;
   --popover: #1a1b1d;
   --popover-foreground: #f7f8f8;
-  --primary: #5e6ad2;
-  --primary-hover: #828fff;
-  --primary-foreground: #ffffff;
+  --primary: #3ec6ad;
+  --primary-hover: #66d9c4;
+  --primary-foreground: #072e27;
   --secondary: #1a1b1d;
   --secondary-foreground: #f7f8f8;
   --muted: #1a1b1d;
@@ -112,23 +112,23 @@
   --destructive: #eb5757;
   --border: #23252a;
   --input: #23252a;
-  --ring: #5e69d1;
+  --ring: #3ec6ad;
   --surface-2: #161718;
   --surface-3: #1c1d1f;
   --ink-muted: #d0d6e0;
   --ink-subtle: #8a8f98;
   --ink-tertiary: #62666d;
   --hairline-strong: #34343a;
-  --bubble: #5e6ad2;
-  --bubble-foreground: #ffffff;
+  --bubble: #3ec6ad;
+  --bubble-foreground: #072e27;
   --sidebar: #060607;
   --sidebar-foreground: #d0d6e0;
-  --sidebar-primary: #5e6ad2;
-  --sidebar-primary-foreground: #ffffff;
+  --sidebar-primary: #3ec6ad;
+  --sidebar-primary-foreground: #072e27;
   --sidebar-accent: #161718;
   --sidebar-accent-foreground: #f7f8f8;
   --sidebar-border: #23252a;
-  --sidebar-ring: #5e69d1;
+  --sidebar-ring: #3ec6ad;
 }
 
 @layer base {

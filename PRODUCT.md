@@ -14,11 +14,11 @@ A chat client for an agentic IDX market-analysis backend. Users ask questions in
 
 ## Brand Personality
 
-Quiet, precise, technical. Software-craft documentation energy — a dark canvas, one lavender accent, dense hairline panels. Three words: calm, exact, engineered.
+Quiet, precise, technical. Software-craft documentation energy — a dark canvas, one teal accent, dense hairline panels. Three words: calm, exact, engineered.
 
 ## Design don'ts
 
-- Warm or bright accents, light-first theming — the accent is lavender, the canvas is dark.
+- Warm or bright accents, light-first theming — the accent is teal, the canvas is dark.
 - Playful/blobby agent indicators — this product uses the Spark status system.
 - Saturated AI-chat gradients, purple-on-purple glassmorphism, glowing orb avatars.
 - Marketing-page flourish — this is a working tool, not a landing page.

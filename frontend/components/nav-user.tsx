@@ -48,7 +48,7 @@ export function NavUser({
       .slice(0, 2) || "U"
 
   const monogram =
-    "flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground shadow-[0_2px_8px_-2px_rgb(94_106_210/0.45)]"
+    "flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground shadow-[0_2px_8px_-2px_rgb(62_198_173/0.45)]"
 
   return (
     <>

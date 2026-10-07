@@ -180,7 +180,7 @@ function SeriesChart({
 }
 
 function SignedArea({ spec }: { spec: ChartSpec }) {
-  // Split gradient at y=0 — positive flow lavender, negative destructive.
+  // Split gradient at y=0 — positive flow teal, negative destructive.
   const s = spec.series[0];
   const vals = spec.data.map((r) => Number(r[s.key] ?? 0));
   const max = Math.max(...vals, 0);
