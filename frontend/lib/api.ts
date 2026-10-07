@@ -41,7 +41,11 @@ export type ChatMessage = {
   charts?: ChartSpec[];
 };
 
-export type ThreadDetail = Thread & { messages: ChatMessage[] };
+export type ThreadDetail = Thread & {
+  messages: ChatMessage[];
+  /** A detached run is still generating — reattach via resumeThreadStream. */
+  has_active_run?: boolean;
+};
 
 export type Memory = {
   id: string;
@@ -209,6 +213,21 @@ export function fetchThreadStream(id: string, signal: AbortSignal) {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     signal,
   });
+}
+
+/** GET /threads/{id}/stream — reattach to a live run's replay buffer.
+ *  Returns null on 404 (no run in flight). */
+export async function resumeThreadStream(
+  id: string,
+  signal?: AbortSignal,
+): Promise<AsyncGenerator<StreamEvent> | null> {
+  const token = getAccessToken();
+  const resp = await fetch(`${BASE}/threads/${id}/stream`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    signal,
+  });
+  if (resp.status === 404) return null;
+  return readSSE<StreamEvent>(await requireStreamBody(resp));
 }
 
 export const listMemories = () =>

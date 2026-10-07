@@ -131,7 +131,12 @@ async def get_thread(
     if thread is None:
         raise HTTPException(status_code=404, detail="Thread not found")
     messages = await service.get_thread_messages(thread_id)
-    return {**ThreadOut.model_validate(thread).model_dump(), "messages": messages}
+    run = registry.get(str(thread_id))
+    return {
+        **ThreadOut.model_validate(thread).model_dump(),
+        "messages": messages,
+        "has_active_run": run is not None and not run.done,
+    }
 
 
 @router.patch("/threads/{thread_id}", response_model=ThreadOut)

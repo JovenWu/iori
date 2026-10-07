@@ -8,10 +8,12 @@ import type { Message } from "@/components/chat-messages";
 import type { ChartSpec } from "@/lib/charts";
 import {
   getThread,
+  resumeThreadStream,
   stopThread,
   streamChat,
   updateThread,
   type ChatMessage,
+  type StreamEvent,
 } from "@/lib/api";
 import { loadSettings } from "@/lib/settings";
 import { detailFor, verbFor } from "@/lib/tool-labels";
@@ -80,6 +82,9 @@ interface ActiveRun {
   /** The assistant message this run streams into — lets stop() settle it
    * even when the abort races the server's `stopped` event. */
   assistantId: string;
+  /** The prompt that started the run — feeds the placeholder title for
+   * brand-new threads. Empty on reattach (wasNew is always false). */
+  prompt: string;
 }
 let activeRun: ActiveRun | null = null;
 /** Runs that outlived their view — kept so logout can abort them all. */
@@ -176,20 +181,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     void tick();
   }
 
-  async function runStream(text: string, assistantId: string) {
-    const run: ActiveRun = {
-      controller: new AbortController(),
-      threadId: null,
-      wasNew: get().threadId === null,
-      detached: false,
-      announced: false,
-      assistantId,
-    };
-    activeRun = run;
-
+  /**
+   * Drain one run's event stream into the view. Shared by live turns
+   * (POST /chat/stream) and reattach (GET /threads/{id}/stream) — the
+   * replayed buffer emits the same event types, so a remount rebuilds
+   * thinking, tool steps and elapsed time identically to watching live.
+   */
+  async function consumeRun(run: ActiveRun, events: AsyncGenerator<StreamEvent>) {
     const owns = () => activeRun === run;
     const patch = (fn: (msg: Message) => Partial<Message>) => {
-      if (owns()) patchMessage(assistantId, fn);
+      if (owns()) patchMessage(run.assistantId, fn);
     };
     // `announced` mirrors the last state reported — a terminal event clears
     // it, so the finally only re-announces when the loop ended silently.
@@ -200,12 +201,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     let endedCleanly = false;
     try {
-      for await (const ev of streamChat(
-        text,
-        get().threadId,
-        run.controller.signal,
-        loadSettings().language,
-      )) {
+      for await (const ev of events) {
         const data = ev.data as Record<string, string>;
         switch (ev.type) {
           case "started": {
@@ -229,7 +225,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               }));
             }
             if (run.wasNew) {
-              const newTitle = text.trim().slice(0, 60) || "New thread";
+              const newTitle = run.prompt.trim().slice(0, 60) || "New thread";
               if (owns()) set({ title: newTitle });
               useThreadsStore
                 .getState()
@@ -333,6 +329,97 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     }
   }
 
+  async function runStream(text: string, assistantId: string) {
+    const run: ActiveRun = {
+      controller: new AbortController(),
+      threadId: null,
+      wasNew: get().threadId === null,
+      detached: false,
+      announced: false,
+      assistantId,
+      prompt: text,
+    };
+    activeRun = run;
+    await consumeRun(
+      run,
+      streamChat(
+        text,
+        get().threadId,
+        run.controller.signal,
+        loadSettings().language,
+      ),
+    );
+  }
+
+  /**
+   * Reattach to a run still generating on the server — replaying the buffer
+   * rebuilds reasoning, tool steps and the elapsed-time anchor the same way
+   * watching live would. No-op when the thread has no live run.
+   */
+  async function reattachStream(threadId: string) {
+    const controller = new AbortController();
+    let events: AsyncGenerator<StreamEvent> | null = null;
+    try {
+      events = await resumeThreadStream(threadId, controller.signal);
+    } catch {
+      return; // transient — the view still has its loaded history
+    }
+    // No live run, the view moved on, or this view already owns a run.
+    if (
+      events === null ||
+      get().routeId !== threadId ||
+      get().threadId !== threadId ||
+      activeRun !== null
+    ) {
+      controller.abort();
+      return;
+    }
+    // Supersede the detached consumer that kept draining this run while the
+    // view was away. Abort BEFORE replaying `started` so its finally's
+    // announce(false) can't clobber our announce(true).
+    for (const r of detachedRuns) {
+      if (r.threadId === threadId) r.controller.abort();
+    }
+    // A mid-turn checkpoint can already serialize a partial assistant entry
+    // (tool steps with no answer yet — content stays empty until the closing
+    // node) — replace it so replayed events don't render the same work twice.
+    // A content-bearing tail is a settled prior answer and must be kept.
+    const history = [...get().messages];
+    let prompt = "";
+    const tail = history.at(-1);
+    if (tail?.role === "assistant" && tail.content === "") {
+      prompt = tail.prompt ?? "";
+      history.pop();
+    } else {
+      prompt = history.findLast((m) => m.role === "user")?.content ?? "";
+    }
+    const assistantId = nextId("a");
+    const run: ActiveRun = {
+      controller,
+      threadId,
+      wasNew: false,
+      detached: false,
+      announced: false,
+      assistantId,
+      prompt,
+    };
+    activeRun = run;
+    set({
+      running: true,
+      messages: [
+        ...history,
+        {
+          id: assistantId,
+          role: "assistant",
+          content: "",
+          prompt,
+          run: { tools: [], active: true, runStartedAt: null },
+        },
+      ],
+    });
+    await consumeRun(run, events);
+  }
+
   return {
     ...initialState,
 
@@ -373,6 +460,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           threadId,
           loading: false,
         });
+        // A run outlived the last visit — rebuild its live bubble from the
+        // replay buffer instead of showing a silent in-flight turn.
+        if (t.has_active_run) void reattachStream(threadId);
         return true;
       } catch {
         if (get().routeId !== threadId) return true;

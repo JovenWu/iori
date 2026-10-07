@@ -132,6 +132,48 @@ async def test_resume_replays_finished_run(client, agent_service, fake_llm):
 
 
 @pytest.mark.asyncio
+async def test_thread_detail_reports_active_run(
+    client, agent_service, fake_llm, monkeypatch
+):
+    """The detail flags a live run so a remounting client knows to reattach."""
+    # Stall the LLM just long enough to read the detail mid-flight.
+    async def slow_llm(messages, config=None):
+        await asyncio.sleep(0.6)
+        return AIMessage(content="lambat")
+
+    slow = SimpleNamespace(ainvoke=slow_llm)
+    monkeypatch.setattr(nodes, "agent_llm", slow)
+    monkeypatch.setitem(nodes._LLM_BY_WORKFLOW, "general", slow)
+
+    headers = await _login(client)
+    req = client.build_request(
+        "POST", STREAM_URL, json={"message": "halo"}, headers=headers
+    )
+    send = asyncio.create_task(client.send(req, stream=True))
+    await asyncio.sleep(0.3)  # let the endpoint register the run
+
+    threads = (await client.get("/api/v1/threads", headers=headers)).json()
+    thread_id = threads["threads"][0]["id"]
+
+    detail = (
+        await client.get(f"/api/v1/threads/{thread_id}", headers=headers)
+    ).json()
+    assert detail["has_active_run"] is True
+
+    resp = await send
+    try:
+        events = await _collect(resp)
+    finally:
+        await resp.aclose()
+    assert events[-1]["type"] == "done"
+
+    detail = (
+        await client.get(f"/api/v1/threads/{thread_id}", headers=headers)
+    ).json()
+    assert detail["has_active_run"] is False
+
+
+@pytest.mark.asyncio
 async def test_stop_signals_run(client, agent_service, monkeypatch):
     async def no_jev(state, questions):
         return None

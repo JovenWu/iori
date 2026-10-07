@@ -67,6 +67,9 @@ class ChatMessageOut(BaseModel):
 
 class ThreadDetailOut(ThreadOut):
     messages: list[ChatMessageOut]
+    # A detached run is still generating for this thread — the client should
+    # reattach via GET /threads/{id}/stream rather than showing history only.
+    has_active_run: bool = False
 
 
 class StopOut(BaseModel):
