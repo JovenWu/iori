@@ -22,6 +22,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<"signin" | "register">("signin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -29,6 +30,10 @@ export default function LoginPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (busy) return;
+    if (mode === "register" && password !== confirm) {
+      setError("Passwords don't match");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -126,6 +131,24 @@ export default function LoginPage() {
                   </button>
                 </div>
               </div>
+              {mode === "register" && (
+                <div className="flex flex-col gap-1.5">
+                  <Label
+                    htmlFor="confirm"
+                    className="text-xs text-muted-foreground"
+                  >
+                    Confirm password
+                  </Label>
+                  <Input
+                    id="confirm"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
+                    value={confirm}
+                    onChange={(e) => setConfirm(e.target.value)}
+                    required
+                  />
+                </div>
+              )}
               {error && (
                 <p className="font-mono text-xs text-destructive">{error}</p>
               )}
@@ -146,6 +169,7 @@ export default function LoginPage() {
                 onClick={() => {
                   setMode(mode === "signin" ? "register" : "signin");
                   setError(null);
+                  setConfirm("");
                 }}
                 className="cursor-pointer text-center font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
