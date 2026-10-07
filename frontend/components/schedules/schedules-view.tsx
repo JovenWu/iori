@@ -31,6 +31,7 @@ import {
   type ScheduleInput,
   type ScheduleJob,
 } from "@/lib/api";
+import { TimePicker } from "@/components/schedules/time-picker";
 import { useSchedulesStore } from "@/lib/stores/schedules";
 import { cn } from "@/lib/utils";
 
@@ -217,7 +218,10 @@ function JobForm({
         </div>
         {frequency === "weekly" && (
           <div className="flex flex-col gap-1.5">
-            <Label>Day</Label>
+            <div className="flex items-center justify-between">
+              <Label>Day</Label>
+              <span className="text-[10px] text-muted-foreground">GMT+7</span>
+            </div>
             <div className="flex gap-1">
               {WEEKDAYS.map((d, i) => (
                 <button
@@ -256,14 +260,15 @@ function JobForm({
           </div>
         )}
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="sched-time">Time (WIB)</Label>
-          <Input
-            id="sched-time"
-            type="time"
-            value={runTime}
-            onChange={(e) => setRunTime(e.target.value)}
-            className="w-28"
-          />
+          <div className="flex items-center justify-between">
+            <Label>Time</Label>
+            <span className="text-[10px] text-muted-foreground">
+              WIB · GMT+7
+            </span>
+          </div>
+          <div>
+            <TimePicker value={runTime} onChange={setRunTime} />
+          </div>
         </div>
       </div>
       <DialogFooter>
