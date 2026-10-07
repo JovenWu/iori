@@ -35,7 +35,12 @@ export const useSchedulesStore = create<SchedulesStore>()((set, get) => ({
 
   refresh: async () => {
     if (!getAccessToken()) return;
-    set({ jobs: await listSchedules(), loaded: true });
+    try {
+      set({ jobs: await listSchedules(), loaded: true });
+    } catch (err) {
+      console.error("Failed to fetch schedules:", err);
+      set({ loaded: true });
+    }
   },
 
   create: async (input) => {

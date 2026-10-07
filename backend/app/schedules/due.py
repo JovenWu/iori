@@ -4,7 +4,6 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 WIB = ZoneInfo("Asia/Jakarta")
-_FREQUENCIES = {"daily", "weekly", "monthly"}
 # Monthly jobs clamp to the 28th — February never misses a slot.
 _MAX_MONTH_DAY = 28
 

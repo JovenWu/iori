@@ -1,7 +1,6 @@
 """Scheduled jobs — recurring prompts that fire normal agent turns."""
 
 import uuid
-from datetime import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -31,7 +30,7 @@ async def create_schedule(
         job = await store.create_job(
             current_user.id, name=body.name, prompt=body.prompt,
             frequency=body.frequency,
-            run_time=body.run_time or time(17, 0),
+            run_time=body.run_time,
             weekday=body.weekday, day_of_month=body.day_of_month,
         )
     except ValueError as exc:
