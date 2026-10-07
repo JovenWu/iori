@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     MEMORY_RRF_K: int = 60
     MEMORY_RERANK_THRESHOLD: float = 0.5
     MEMORY_MAX_PER_USER: int = 200
+    # JEV judges every stored memory up to this many per turn — above it, the
+    # newest N plus whatever hybrid retrieval surfaces are judged instead.
+    MEMORY_SCAN_MAX: int = 200
     MEMORY_BACKGROUND_CONCURRENCY: int = 4
     MEMORY_VECTOR_FLOOR: float = 0.6
 

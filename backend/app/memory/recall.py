@@ -1,9 +1,13 @@
-"""Hybrid memory retrieval: normalize → vector + BM25 → RRF → rerank.
+"""Memory recall: JEV judges the full memory set first, hybrid retrieval as
+the no-judge fallback.
 
-Rerank is JEV-first: one system_one call carries a Score question per
-candidate (JEV evaluates all questions in parallel). When TypeSafe is
-unconfigured or fails, an LLM structured-output scorer takes over; if that
-also fails, raw vector order is used.
+The candidate stage is a full scan, not vector+BM25 — a memory phrased
+nothing like the query would never reach the reranker through retrieval,
+so JEV scores every stored memory directly (bounded by MEMORY_SCAN_MAX,
+unioned with retrieval hits beyond it). Judging stays JEV-first: one
+system_one call carries a Score question per candidate, the LLM scorer
+takes over when TypeSafe is unavailable, and the classic normalize →
+vector + BM25 → RRF → rerank pipeline only runs when no judge answers.
 """
 
 import logging
@@ -248,13 +252,7 @@ async def rerank_candidates(
 
 
 async def _gather_candidates(
-    db: AsyncSession,
-    user_id: int,
-    query: str,
-    retrieval_threshold: float,
-    semantic_candidates: int,
-    bm25_candidates: int,
-    rrf_k: int,
+    db: AsyncSession, user_id: int, query: str
 ) -> tuple[list[tuple[Memory, float]], dict]:
     """Shared retrieval core: normalized query → both arms → RRF merge.
 
@@ -264,20 +262,69 @@ async def _gather_candidates(
     normalized = await _normalize_query(query)
 
     semantic_raw = await store.vector_search(
-        db, user_id, normalized, top_k=semantic_candidates
+        db, user_id, normalized, top_k=settings.MEMORY_RETRIEVAL_CANDIDATES
     )
     cosine_scores = {m.id: s for m, s in semantic_raw}
-    semantic = [(m, s) for m, s in semantic_raw if s >= retrieval_threshold]
+    semantic = [
+        (m, s)
+        for m, s in semantic_raw
+        if s >= settings.MEMORY_RETRIEVAL_THRESHOLD
+    ]
 
     bm25 = await store.bm25_search(
-        db, user_id, normalized, top_k=bm25_candidates
+        db, user_id, normalized, top_k=settings.MEMORY_BM25_CANDIDATES
     )
 
     if not semantic and not bm25:
         return [], cosine_scores
 
-    merged = rrf_merge(semantic, bm25, k=rrf_k)
-    return merged, cosine_scores
+    return rrf_merge(semantic, bm25, k=settings.MEMORY_RRF_K), cosine_scores
+
+
+async def _recall_ranked(
+    db: AsyncSession, user_id: int, query: str
+) -> list[RankedMemory]:
+    """JEV judges the whole memory set, not just what retrieval surfaces.
+
+    A memory can be relevant yet phrased nothing like the query — semantic
+    distance and BM25 would both drop it before the reranker ever saw it.
+    Scoring every stored memory (bounded by MEMORY_SCAN_MAX; above that, the
+    newest N plus hybrid-retrieval hits) lets the judge decide on content.
+    When no judge is reachable at all, the classic retrieval pipeline
+    remains as the narrowing fallback.
+    """
+    memories = await store.list_memories(
+        db, user_id, limit=settings.MEMORY_SCAN_MAX
+    )
+    merged: list[tuple[Memory, float]] = []
+    cosine_scores: dict = {}
+    if len(memories) >= settings.MEMORY_SCAN_MAX:
+        # The scan window is full — older memories may exist beyond it, so
+        # union in whatever retrieval surfaces to keep them eligible.
+        merged, cosine_scores = await _gather_candidates(db, user_id, query)
+    seen = {m.id for m in memories}
+    candidates = [(m, 0.0) for m in memories] + [
+        x for x in merged if x[0].id not in seen
+    ]
+
+    if candidates:
+        score_map = await _jev_rerank_scores(query, candidates)
+        if score_map is None:
+            score_map = await _llm_rerank_scores(query, candidates)
+        if score_map is not None:
+            # No cosine scores on the scan path — the judge is the arbiter,
+            # so "nothing relevant" honestly yields nothing.
+            return _apply_rerank_filter(
+                candidates,
+                score_map,
+                cosine_scores,
+                settings.MEMORY_RERANK_THRESHOLD,
+                settings.MEMORY_VECTOR_FLOOR,
+            )
+
+    if not merged:
+        merged, cosine_scores = await _gather_candidates(db, user_id, query)
+    return await rerank_candidates(query, merged, cosine_scores)
 
 
 async def recall_memories(
@@ -290,20 +337,7 @@ async def recall_memories(
     if not query.strip():
         return ""
 
-    merged, cosine_scores = await _gather_candidates(
-        db,
-        user_id,
-        query,
-        retrieval_threshold=settings.MEMORY_RETRIEVAL_THRESHOLD,
-        semantic_candidates=settings.MEMORY_RETRIEVAL_CANDIDATES,
-        bm25_candidates=settings.MEMORY_BM25_CANDIDATES,
-        rrf_k=settings.MEMORY_RRF_K,
-    )
-    if not merged:
-        return ""
-
-    ranked = await rerank_candidates(query, merged, cosine_scores)
-    ranked = ranked[:top_k]
+    ranked = (await _recall_ranked(db, user_id, query))[:top_k]
     if not ranked:
         return ""
 
@@ -321,23 +355,11 @@ async def recall_scored(
     if not query.strip():
         return []
 
-    merged, cosine_scores = await _gather_candidates(
-        db,
-        user_id,
-        query,
-        retrieval_threshold=settings.MEMORY_RETRIEVAL_THRESHOLD,
-        semantic_candidates=settings.MEMORY_RETRIEVAL_CANDIDATES,
-        bm25_candidates=settings.MEMORY_BM25_CANDIDATES,
-        rrf_k=settings.MEMORY_RRF_K,
-    )
-    if not merged:
-        return []
-
-    ranked = await rerank_candidates(query, merged, cosine_scores)
+    ranked = await _recall_ranked(db, user_id, query)
     return [
         {
             "memory": r.memory,
-            "vector_score": cosine_scores.get(r.memory.id, 0.0),
+            "vector_score": r.vector_score,
             "rerank_score": r.rerank_score,
         }
         for r in ranked[:top_k]

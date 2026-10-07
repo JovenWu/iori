@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.core.config import settings
 from app.memory import recall
 
 
@@ -100,3 +101,120 @@ async def test_rerank_vector_order_last_resort(monkeypatch):
     monkeypatch.setattr(recall, "_llm_rerank_scores", no_llm)
     ranked = await recall.rerank_candidates("q", [(weak, 0.4), (strong, 0.9)])
     assert ranked[0].memory is strong
+
+
+# ---------------------------------------------------------------------------
+# Full-scan recall — JEV judges every memory, retrieval is fallback only
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scan_judges_all_memories_skipping_retrieval(monkeypatch):
+    """A memory retrieval could never surface still reaches the judge."""
+    mems = [
+        _cand("User prefers conservative dividend plays"),
+        _cand("User asked about BAJA rights last week"),
+    ]
+
+    async def fake_list(db, user_id, limit=50, offset=0):
+        return mems
+
+    async def boom(db, user_id, query, top_k=10):
+        raise AssertionError("retrieval must not run under the scan cap")
+
+    async def fake_ask(state, questions):
+        assert len(questions) == 2
+        assert state["candidates"][0]["memory"].startswith("User prefers")
+        return SimpleNamespace(
+            scores={
+                "cand_0": SimpleNamespace(score=3.0),
+                "cand_1": SimpleNamespace(score=0.0),
+            }
+        )
+
+    monkeypatch.setattr(recall.store, "list_memories", fake_list)
+    monkeypatch.setattr(recall.store, "vector_search", boom)
+    monkeypatch.setattr(recall.store, "bm25_search", boom)
+    monkeypatch.setattr(recall, "jev_ask", fake_ask)
+
+    out = await recall.recall_memories(None, 1, "should i exercise my BAJA rights")
+    assert "conservative dividend" in out
+    assert "asked about BAJA" not in out  # judged below threshold
+
+
+@pytest.mark.asyncio
+async def test_scan_returns_empty_when_nothing_relevant(monkeypatch):
+    """The judge is the arbiter — no forced weak-vector rescue."""
+    mems = [_cand("likes spicy food"), _cand("birthday in march")]
+
+    async def fake_list(db, user_id, limit=50, offset=0):
+        return mems
+
+    async def fake_ask(state, questions):
+        return SimpleNamespace(
+            scores={f"cand_{i}": SimpleNamespace(score=0.0) for i in range(2)}
+        )
+
+    monkeypatch.setattr(recall.store, "list_memories", fake_list)
+    monkeypatch.setattr(recall, "jev_ask", fake_ask)
+
+    assert await recall.recall_memories(None, 1, "my BAJA rights issue") == ""
+
+
+@pytest.mark.asyncio
+async def test_scan_falls_back_to_retrieval_when_no_judge(monkeypatch):
+    """JEV and the LLM scorer both down → classic pipeline still narrows."""
+    mem = _cand("holds 2000 BAJA shares")
+
+    async def fake_list(db, user_id, limit=50, offset=0):
+        return [mem]
+
+    async def no_jev(state, questions):
+        return None
+
+    async def no_llm(query, candidates):
+        return None
+
+    async def fake_gather(*args, **kwargs):
+        return [(mem, 0.9)], {mem.id: 0.9}
+
+    monkeypatch.setattr(recall.store, "list_memories", fake_list)
+    monkeypatch.setattr(recall, "jev_ask", no_jev)
+    monkeypatch.setattr(recall, "_llm_rerank_scores", no_llm)
+    monkeypatch.setattr(recall, "_gather_candidates", fake_gather)
+
+    out = await recall.recall_memories(None, 1, "q")
+    assert "BAJA" in out
+
+
+@pytest.mark.asyncio
+async def test_scan_unions_retrieval_beyond_cap(monkeypatch):
+    """Over the scan cap, retrieval hits stay eligible alongside the newest."""
+    monkeypatch.setattr(settings, "MEMORY_SCAN_MAX", 2)
+    mems = [_cand("recent a"), _cand("recent b")]
+    old = _cand("old but directly relevant")
+
+    async def fake_list(db, user_id, limit=50, offset=0):
+        return mems[:limit]
+
+    async def fake_gather(*args, **kwargs):
+        return [(old, 0.8)], {old.id: 0.8}
+
+    seen = {}
+
+    async def fake_ask(state, questions):
+        seen["n"] = len(questions)
+        return SimpleNamespace(
+            scores={
+                f"cand_{i}": SimpleNamespace(score=3.0)
+                for i in range(len(questions))
+            }
+        )
+
+    monkeypatch.setattr(recall.store, "list_memories", fake_list)
+    monkeypatch.setattr(recall, "_gather_candidates", fake_gather)
+    monkeypatch.setattr(recall, "jev_ask", fake_ask)
+
+    out = await recall.recall_memories(None, 1, "q")
+    assert seen["n"] == 3  # 2 scanned + 1 retrieved beyond the cap
+    assert "old but directly relevant" in out
