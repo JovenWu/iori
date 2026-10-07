@@ -32,9 +32,17 @@ router = APIRouter()
 
 
 def _thread_dict(t: Thread, sched_ids: set[uuid.UUID]) -> dict:
+    scheduled = t.id in sched_ids
+    # Unread = scheduled thread with output newer than the user's last open.
+    # Never opened → unread once a run has produced its first answer.
+    if t.last_read_at is not None:
+        unread = t.updated_at > t.last_read_at
+    else:
+        unread = t.first_answer_preview is not None
     return {
         **ThreadOut.model_validate(t).model_dump(),
-        "scheduled": t.id in sched_ids,
+        "scheduled": scheduled,
+        "unread": scheduled and unread,
     }
 
 
@@ -54,6 +62,8 @@ async def chat_stream(
     except LookupError:
         raise HTTPException(status_code=404, detail="Thread not found")
     tid = str(thread.id)
+    if body.thread_id is not None:
+        await service.mark_thread_read(db, thread)
 
     async with service.thread_lock(tid):
         await registry.stop_and_wait(tid)  # a new turn supersedes any live run
@@ -148,8 +158,10 @@ async def get_thread(
     messages = await service.get_thread_messages(thread_id)
     run = registry.get(str(thread_id))
     sched_ids = await schedules_store.scheduled_thread_ids(current_user.id)
+    out = _thread_dict(thread, sched_ids)
+    await service.mark_thread_read(db, thread)
     return {
-        **_thread_dict(thread, sched_ids),
+        **out,
         "messages": messages,
         "has_active_run": run is not None and not run.done,
     }

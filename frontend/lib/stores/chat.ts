@@ -461,6 +461,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           threadId,
           loading: false,
         });
+        // Opening the thread marks it read server-side — clear the sidebar
+        // dot optimistically rather than waiting for the next list refresh.
+        useThreadsStore.getState().patchThread(threadId, { unread: false });
         // A run outlived the last visit — rebuild its live bubble from the
         // replay buffer instead of showing a silent in-flight turn.
         if (t.has_active_run) void reattachStream(threadId);

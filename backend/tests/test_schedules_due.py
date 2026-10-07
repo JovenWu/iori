@@ -43,6 +43,16 @@ def test_weekly_only_on_matching_weekday():
     assert _due(frequency="weekly", weekday=0) is False  # Mon != Wed
 
 
+def test_weekdays_due_mon_fri_not_weekend():
+    assert _due(frequency="weekdays") is True  # Wed
+    fri = datetime(2026, 10, 9, 18, 0, tzinfo=WIB)
+    assert _due(frequency="weekdays", now=fri) is True
+    sat = datetime(2026, 10, 10, 18, 0, tzinfo=WIB)
+    assert _due(frequency="weekdays", now=sat) is False
+    sun = datetime(2026, 10, 11, 18, 0, tzinfo=WIB)
+    assert _due(frequency="weekdays", now=sun) is False
+
+
 def test_monthly_only_on_day_of_month():
     assert _due(frequency="monthly", day_of_month=7) is True
     assert _due(frequency="monthly", day_of_month=8) is False
@@ -73,6 +83,22 @@ def test_next_run_weekly_skips_to_matching_day():
     assert nxt.day == 7
 
 
+def test_next_run_weekdays_skips_weekend():
+    # Friday past the slot → next is Monday.
+    fri = datetime(2026, 10, 9, 18, 0, tzinfo=WIB)
+    nxt = next_run_at(frequency="weekdays", run_time=T1700, weekday=None,
+                      day_of_month=None, now=fri)
+    assert (nxt.day, nxt.weekday()) == (12, 0)
+    sat = datetime(2026, 10, 10, 9, 0, tzinfo=WIB)
+    nxt = next_run_at(frequency="weekdays", run_time=T1700, weekday=None,
+                      day_of_month=None, now=sat)
+    assert (nxt.day, nxt.weekday()) == (12, 0)
+    # A weekday before the slot still lands same-day.
+    nxt = next_run_at(frequency="weekdays", run_time=T1700, weekday=None,
+                      day_of_month=None, now=NOW.replace(hour=9))
+    assert nxt.day == 7
+
+
 def test_next_run_monthly_this_then_next_month():
     before = NOW.replace(day=1)
     nxt = next_run_at(frequency="monthly", run_time=T1700, weekday=None,
@@ -92,6 +118,7 @@ def test_next_run_monthly_clamps_28_in_february():
 
 def test_normalize_cadence():
     assert normalize_cadence("daily", 3, 9) == ("daily", None, None)
+    assert normalize_cadence("weekdays", 3, 9) == ("weekdays", None, None)
     assert normalize_cadence("weekly", 4, 9) == ("weekly", 4, None)
     assert normalize_cadence("monthly", 3, 31) == ("monthly", None, 28)
     with pytest.raises(ValueError):

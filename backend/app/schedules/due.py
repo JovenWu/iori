@@ -12,6 +12,13 @@ def _slot_on(day: date, run_time: time) -> datetime:
     return datetime.combine(day, run_time, tzinfo=WIB)
 
 
+def _weekday_ok(frequency: str, day_weekday: int, weekday: int | None) -> bool:
+    # "weekdays" = Mon–Fri — IDX trading days.
+    if frequency == "weekdays":
+        return day_weekday < 5
+    return weekday is not None and day_weekday == weekday
+
+
 def due_now(*, frequency: str, run_time: time, weekday: int | None,
             day_of_month: int | None, last_run_at: datetime | None,
             enabled: bool = True, now: datetime | None = None) -> bool:
@@ -23,8 +30,8 @@ def due_now(*, frequency: str, run_time: time, weekday: int | None,
     slot = None
     if frequency == "daily":
         slot = _slot_on(now.date(), run_time)
-    elif frequency == "weekly":
-        if weekday is not None and now.weekday() == weekday:
+    elif frequency in ("weekly", "weekdays"):
+        if _weekday_ok(frequency, now.weekday(), weekday):
             slot = _slot_on(now.date(), run_time)
     elif frequency == "monthly":
         if day_of_month is not None and now.day == day_of_month:
@@ -48,10 +55,10 @@ def next_run_at(*, frequency: str, run_time: time, weekday: int | None,
         today = _slot_on(now.date(), run_time)
         return today if now < today else _slot_on(
             now.date() + timedelta(days=1), run_time)
-    if frequency == "weekly" and weekday is not None:
+    if frequency in ("weekly", "weekdays"):
         for delta in range(8):
             slot = _slot_on(now.date() + timedelta(days=delta), run_time)
-            if slot.weekday() == weekday and now < slot:
+            if _weekday_ok(frequency, slot.weekday(), weekday) and now < slot:
                 return slot
         return None
     if frequency == "monthly" and day_of_month is not None:
@@ -69,8 +76,8 @@ def normalize_cadence(frequency: str, weekday: int | None,
                       ) -> tuple[str, int | None, int | None]:
     """Canonical (frequency, weekday, day_of_month) — irrelevant fields are
     stripped, day_of_month clamps to 28. Raises ValueError on bad input."""
-    if frequency == "daily":
-        return "daily", None, None
+    if frequency in ("daily", "weekdays"):
+        return frequency, None, None
     if frequency == "weekly":
         if weekday is None or not 0 <= weekday <= 6:
             raise ValueError("weekly requires weekday 0-6 (0=Mon)")
@@ -79,4 +86,4 @@ def normalize_cadence(frequency: str, weekday: int | None,
         if day_of_month is None:
             raise ValueError("monthly requires day_of_month")
         return "monthly", None, max(1, min(_MAX_MONTH_DAY, day_of_month))
-    raise ValueError("frequency must be daily, weekly or monthly")
+    raise ValueError("frequency must be daily, weekdays, weekly or monthly")

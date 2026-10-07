@@ -51,6 +51,10 @@ async def test_validation(client):
         "name": "x", "prompt": "p", "frequency": "hourly"})
     assert [no_weekday.status_code, no_dom.status_code,
             bad_freq.status_code] == [422, 422, 422]
+    # "weekdays" (Mon–Fri trading days) needs no extra fields.
+    wd = await client.post(URL, headers=h, json={
+        "name": "wd", "prompt": "p", "frequency": "weekdays"})
+    assert wd.status_code == 200 and wd.json()["frequency"] == "weekdays"
 
 
 @pytest.mark.asyncio

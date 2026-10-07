@@ -76,6 +76,45 @@ async def test_due_jobs_filters(db, _bind, user):
     assert await store.due_jobs(now) == []
 
 
+async def test_scheduled_thread_ids(db, _bind, user):
+    job = await store.create_job(
+        user.id, name="flag", prompt="p", frequency="daily",
+        run_time=None, weekday=None, day_of_month=None)
+    assert await store.scheduled_thread_ids(user.id) == {job.thread_id}
+    assert await store.scheduled_thread_ids(999) == set()
+
+
+async def test_mark_thread_read_does_not_bump(db, _bind, user):
+    """Marking read must not reorder Recent — updated_at is pinned."""
+    from app.agent import service
+
+    job = await store.create_job(
+        user.id, name="r", prompt="p", frequency="daily",
+        run_time=None, weekday=None, day_of_month=None)
+    thread = await db.get(Thread, job.thread_id)
+    before = thread.updated_at
+    await service.mark_thread_read(db, thread)
+    thread = await db.get(Thread, job.thread_id)
+    assert thread.last_read_at is not None
+    assert thread.updated_at == before
+
+
+async def test_update_name_syncs_thread_title(db, _bind, user):
+    job = await store.create_job(
+        user.id, name="a", prompt="p", frequency="daily",
+        run_time=None, weekday=None, day_of_month=None)
+    before = (await db.get(Thread, job.thread_id)).updated_at
+    await store.update_job(user.id, job.id, {"name": "Renamed"})
+    thread = await db.get(Thread, job.thread_id)
+    assert thread.title == "Renamed"
+    assert thread.updated_at == before  # a rename isn't activity
+    assert await store.job_for_thread(job.thread_id) is not None
+    plain = Thread(user_id=user.id)
+    db.add(plain)
+    await db.commit()
+    assert await store.job_for_thread(plain.id) is None
+
+
 async def test_job_dict_has_next_run(db, _bind, user):
     job = await store.create_job(
         user.id, name="d", prompt="p", frequency="daily",

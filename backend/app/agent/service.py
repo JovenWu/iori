@@ -10,7 +10,7 @@ thread digest.
 import asyncio
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Sequence
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
@@ -28,6 +28,7 @@ from app.db.session import async_session_maker
 from app.memory.digests import maintain_digest
 from app.memory.pipeline import process_turn
 from app.models.thread import Thread
+from app.schedules import store as schedules_store
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,20 @@ async def get_thread(
         select(Thread).where(Thread.id == thread_id, Thread.user_id == user_id)
     )
     return result.scalars().first()
+
+
+async def mark_thread_read(db: AsyncSession, thread: Thread) -> None:
+    """The user opened the thread — pin updated_at to its current value so
+    the read marker alone doesn't bump it to the top of Recent."""
+    await db.execute(
+        update(Thread)
+        .where(Thread.id == thread.id)
+        .values(
+            last_read_at=datetime.now(timezone.utc),
+            updated_at=thread.updated_at,
+        )
+    )
+    await db.commit()
 
 
 async def get_or_create_thread(
@@ -400,6 +415,8 @@ async def _ensure_title(user_id: int, thread_id: str, user_msg: str) -> None:
     is usually committed before the run's stream closes; _post_turn retries
     on failure. Never raises."""
     try:
+        if await schedules_store.job_for_thread(thread_id) is not None:
+            return  # the job's name is the title — never auto-retitle
         async with async_session_maker() as db:
             thread = await get_thread(db, user_id, thread_id)
             if thread is None or not _title_is_placeholder(thread, user_msg):
@@ -448,6 +465,8 @@ async def _post_turn(user_id: int, thread_id: str) -> None:
                 "",
             )
 
+            # Job-owned threads keep the job name as their title.
+            job_owned = await schedules_store.job_for_thread(thread_id) is not None
             async with async_session_maker() as db:
                 thread = await get_thread(db, user_id, thread_id)
                 # Title first — a fast invoke, user-facing. Commit it before
@@ -457,6 +476,7 @@ async def _post_turn(user_id: int, thread_id: str) -> None:
                 if (
                     thread is not None
                     and isinstance(first_user_msg, str)
+                    and not job_owned
                     and _title_is_placeholder(thread, first_user_msg)
                 ):
                     generated = await _generate_title(first_user_msg)
@@ -470,8 +490,12 @@ async def _post_turn(user_id: int, thread_id: str) -> None:
                 await maintain_digest(
                     db, user_id, thread_id, title, summary, messages
                 )
-                if thread is not None and not thread.first_answer_preview:
-                    thread.first_answer_preview = ai_msg[:200]
+                if thread is not None:
+                    if not thread.first_answer_preview:
+                        thread.first_answer_preview = ai_msg[:200]
+                    # Every settled turn is activity — bump Recent even when
+                    # nothing else on the row changed (2nd+ scheduled run).
+                    thread.updated_at = datetime.now(timezone.utc)
                 await db.commit()
         except Exception:
             logger.exception("_post_turn failed for thread %s", thread_id)

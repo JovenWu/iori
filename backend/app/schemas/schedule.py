@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 class ScheduleIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     prompt: str = Field(min_length=1, max_length=8000)
-    frequency: Literal["daily", "weekly", "monthly"]
+    frequency: Literal["daily", "weekdays", "weekly", "monthly"]
     # "HH:MM" WIB — defaults to 17:00 server-side.
     run_time: time | None = None
     weekday: int | None = Field(default=None, ge=0, le=6)
@@ -26,7 +26,7 @@ class ScheduleIn(BaseModel):
 class SchedulePatch(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     prompt: str | None = Field(default=None, min_length=1, max_length=8000)
-    frequency: Literal["daily", "weekly", "monthly"] | None = None
+    frequency: Literal["daily", "weekdays", "weekly", "monthly"] | None = None
     run_time: time | None = None
     weekday: int | None = Field(default=None, ge=0, le=6)
     day_of_month: int | None = Field(default=None, ge=1, le=31)

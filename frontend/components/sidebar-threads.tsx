@@ -78,6 +78,12 @@ function ThreadRow({
               aria-label="Scheduled job thread"
             />
           )}
+          {thread.unread && (
+            <span
+              className="size-1.5 shrink-0 rounded-full bg-primary"
+              aria-label="New scheduled output"
+            />
+          )}
           <span className="min-w-0 flex-1 truncate">{title}</span>
         </Link>
       </SidebarMenuButton>

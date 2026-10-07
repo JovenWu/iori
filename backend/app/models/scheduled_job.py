@@ -32,7 +32,7 @@ class ScheduledJob(TimeStampedBase):
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
-    frequency: Mapped[str] = mapped_column(String(7), nullable=False)
+    frequency: Mapped[str] = mapped_column(String(16), nullable=False)
     # Wall-clock WIB — the tz is fixed in v1.
     run_time: Mapped[time] = mapped_column(
         Time, nullable=False, default=lambda: time(17, 0)

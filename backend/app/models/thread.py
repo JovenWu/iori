@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime
 
-from sqlalchemy import UUID, Boolean, ForeignKey, Integer, String
+from sqlalchemy import UUID, Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import TimeStampedBase
@@ -22,3 +23,8 @@ class Thread(TimeStampedBase):
     # Denormalized preview of the first assistant answer so the thread list
     # never deserializes full checkpoints.
     first_answer_preview: Mapped[str | None] = mapped_column(String)
+    # Last time the user opened this thread — drives the unread marker on
+    # scheduled-job threads (a run finished while they weren't looking).
+    last_read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

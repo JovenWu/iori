@@ -27,6 +27,8 @@ def _cadence(job: dict) -> str:
     t = job["run_time"]
     if job["frequency"] == "daily":
         return f"daily {t} WIB"
+    if job["frequency"] == "weekdays":
+        return f"weekdays {t} WIB"
     if job["frequency"] == "weekly":
         return f"every {_WEEKDAYS[job['weekday']]} {t} WIB"
     return f"monthly day {job['day_of_month']} {t} WIB"
@@ -71,7 +73,8 @@ async def schedule_create(name: str, prompt: str, frequency: str,
         name: Short job name — also becomes the thread's sidebar title.
         prompt: The instruction the agent runs each slot, e.g. "scan my
             holdings for new corporate actions and summarize what changed".
-        frequency: "daily" | "weekly" | "monthly".
+        frequency: "daily" | "weekdays" | "weekly" | "monthly" — weekdays is
+            Mon–Fri (IDX trading days), e.g. "every trading day at 5pm".
         run_time: "HH:MM" WIB (default 17:00).
         weekday: weekly only — 0=Mon … 6=Sun.
         day_of_month: monthly only — 1-28 (clamped; no month-end edges).

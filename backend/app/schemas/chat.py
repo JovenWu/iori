@@ -27,6 +27,9 @@ class ThreadOut(BaseModel):
     # True when a scheduled job owns this thread — the sidebar shows a
     # timer marker so automated threads are distinguishable at a glance.
     scheduled: bool = False
+    # Scheduled thread with a run that finished after the user last opened
+    # it — the notification surface for autonomous work.
+    unread: bool = False
 
     model_config = {"from_attributes": True}
 

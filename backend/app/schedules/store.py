@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, time
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.db.session import async_session_maker
 from app.models.scheduled_job import ScheduledJob
@@ -49,6 +49,15 @@ async def get_job(user_id: int, job_id: uuid.UUID | str) -> ScheduledJob | None:
     return job
 
 
+async def job_for_thread(thread_id: uuid.UUID | str) -> ScheduledJob | None:
+    """The job owning this thread, if any — the thread keeps the job's name
+    as its title and shows scheduled/unread markers."""
+    async with async_session_maker() as db:
+        return (await db.execute(
+            select(ScheduledJob).where(ScheduledJob.thread_id == thread_id)
+        )).scalars().first()
+
+
 async def update_job(user_id: int, job_id: uuid.UUID | str,
                      fields: dict) -> ScheduledJob | None:
     """Partial update — cadence fields are re-normalized against the merged
@@ -60,6 +69,17 @@ async def update_job(user_id: int, job_id: uuid.UUID | str,
         for key in ("name", "prompt", "enabled", "run_time"):
             if key in fields:
                 setattr(job, key, fields[key])
+        if "name" in fields:
+            # The job's name doubles as the thread's sidebar title. Pin
+            # updated_at — a rename isn't activity and shouldn't bump
+            # Recent or flag the thread unread.
+            thread = await db.get(Thread, job.thread_id)
+            if thread is not None:
+                await db.execute(
+                    update(Thread)
+                    .where(Thread.id == thread.id)
+                    .values(title=job.name, updated_at=thread.updated_at)
+                )
         if {"frequency", "weekday", "day_of_month"} & fields.keys():
             freq, wd, dom = normalize_cadence(
                 fields.get("frequency", job.frequency),

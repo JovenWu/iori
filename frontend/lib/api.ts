@@ -29,6 +29,8 @@ export type Thread = {
   updated_at: string;
   /** A scheduled job owns this thread — show a timer marker in lists. */
   scheduled?: boolean;
+  /** Scheduled thread with output newer than the last open — unread dot. */
+  unread?: boolean;
 };
 
 export type ChatMessage = {
@@ -347,7 +349,7 @@ export type ScheduleJob = {
   id: string;
   name: string;
   prompt: string;
-  frequency: "daily" | "weekly" | "monthly";
+  frequency: "daily" | "weekdays" | "weekly" | "monthly";
   /** "HH:MM:SS" — WIB wall-clock. */
   run_time: string;
   /** 0=Mon … 6=Sun (weekly only). */
@@ -364,7 +366,7 @@ export type ScheduleJob = {
 export type ScheduleInput = {
   name: string;
   prompt: string;
-  frequency: "daily" | "weekly" | "monthly";
+  frequency: "daily" | "weekdays" | "weekly" | "monthly";
   /** "HH:MM" — defaults to 17:00 WIB server-side. */
   run_time?: string | null;
   weekday?: number | null;

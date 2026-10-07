@@ -40,6 +40,7 @@ const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 function formatCadence(job: ScheduleJob): string {
   const t = job.run_time.slice(0, 5);
   if (job.frequency === "daily") return `Daily ${t}`;
+  if (job.frequency === "weekdays") return `Weekdays ${t}`;
   if (job.frequency === "weekly")
     return `${WEEKDAYS[job.weekday ?? 0]} ${t}`;
   return `Day ${job.day_of_month} · ${t}`;
@@ -199,7 +200,7 @@ function JobForm({
         <div className="flex flex-col gap-1.5">
           <Label>Frequency</Label>
           <div className="flex gap-1 rounded-lg border border-border p-1">
-            {(["daily", "weekly", "monthly"] as const).map((f) => (
+            {(["daily", "weekdays", "weekly", "monthly"] as const).map((f) => (
               <button
                 key={f}
                 type="button"
