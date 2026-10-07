@@ -14,7 +14,9 @@ from app.agent import service
 from app.agent.runs import RunLimitError, registry
 from app.api import deps
 from app.api.sse import sse_response
+from app.models.thread import Thread
 from app.models.user import User
+from app.schedules import store as schedules_store
 from app.schemas.chat import (
     ChatStreamRequest,
     StopOut,
@@ -27,6 +29,13 @@ from app.schemas.chat import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _thread_dict(t: Thread, sched_ids: set[uuid.UUID]) -> dict:
+    return {
+        **ThreadOut.model_validate(t).model_dump(),
+        "scheduled": t.id in sched_ids,
+    }
 
 
 @router.post("/chat/stream")
@@ -118,11 +127,12 @@ async def list_threads(
     threads, next_cursor, total, starred = await service.list_threads(
         db, current_user.id, limit=limit, before=before
     )
+    sched_ids = await schedules_store.scheduled_thread_ids(current_user.id)
     return {
-        "threads": threads,
+        "threads": [_thread_dict(t, sched_ids) for t in threads],
         "next_cursor": next_cursor,
         "total": total,
-        "starred": starred,
+        "starred": [_thread_dict(t, sched_ids) for t in starred],
     }
 
 
@@ -137,8 +147,9 @@ async def get_thread(
         raise HTTPException(status_code=404, detail="Thread not found")
     messages = await service.get_thread_messages(thread_id)
     run = registry.get(str(thread_id))
+    sched_ids = await schedules_store.scheduled_thread_ids(current_user.id)
     return {
-        **ThreadOut.model_validate(thread).model_dump(),
+        **_thread_dict(thread, sched_ids),
         "messages": messages,
         "has_active_run": run is not None and not run.done,
     }
@@ -156,7 +167,8 @@ async def update_thread(
     )
     if thread is None:
         raise HTTPException(status_code=404, detail="Thread not found")
-    return thread
+    sched_ids = await schedules_store.scheduled_thread_ids(current_user.id)
+    return _thread_dict(thread, sched_ids)
 
 
 @router.delete("/threads/{thread_id}")

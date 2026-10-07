@@ -83,6 +83,17 @@ async def delete_job(user_id: int, job_id: uuid.UUID | str) -> bool:
         return True
 
 
+async def scheduled_thread_ids(user_id: int) -> set[uuid.UUID]:
+    """Thread ids owned by this user's jobs — used to flag them in the
+    thread list so the UI can mark them as scheduled."""
+    async with async_session_maker() as db:
+        rows = (await db.execute(
+            select(ScheduledJob.thread_id)
+            .where(ScheduledJob.user_id == user_id)
+        )).scalars().all()
+    return set(rows)
+
+
 async def due_jobs(now: datetime | None = None) -> list[ScheduledJob]:
     """Enabled jobs whose slot arrived and hasn't fired — oldest first."""
     async with async_session_maker() as db:

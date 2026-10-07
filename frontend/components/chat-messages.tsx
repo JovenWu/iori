@@ -58,9 +58,11 @@ function UserBubble({
   }, [content]);
 
   return (
-    <div className="ml-auto w-fit max-w-[85%]">
+    <div className="relative ml-auto w-fit max-w-[85%]">
+      {/* Out of flow — the label must not inflate the bubble's width on
+          short messages like "hi". */}
       {scheduled && (
-        <div className="mb-1 flex items-center justify-end gap-1 text-[11px] font-medium text-muted-foreground">
+        <div className="absolute bottom-full right-0 mb-1 flex items-center gap-1 whitespace-nowrap text-[11px] font-medium text-muted-foreground">
           <TimerIcon className="size-3" />
           Scheduled
         </div>

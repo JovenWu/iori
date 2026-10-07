@@ -27,10 +27,15 @@ async def test_create_list_get(client):
     job = resp.json()
     assert job["run_time"] == "17:00:00" and job["enabled"] is True
     assert job["next_run_at"] is not None and job["thread_id"]
-    # The backing thread is a real thread.
+    # The backing thread is a real thread, flagged as scheduled so the UI
+    # can mark it in lists.
     threads = (await client.get("/api/v1/threads", headers=h)).json()
     row = next(t for t in threads["threads"] if t["id"] == job["thread_id"])
     assert row["title"] == "Nightly scan"
+    assert row["scheduled"] is True
+    assert all(
+        t["scheduled"] is (t["id"] == job["thread_id"]) for t in threads["threads"]
+    )
     listed = (await client.get(URL, headers=h)).json()
     assert [j["id"] for j in listed] == [job["id"]]
 

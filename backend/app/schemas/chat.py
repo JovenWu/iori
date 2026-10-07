@@ -24,6 +24,9 @@ class ThreadOut(BaseModel):
     first_answer_preview: str | None
     created_at: datetime
     updated_at: datetime
+    # True when a scheduled job owns this thread — the sidebar shows a
+    # timer marker so automated threads are distinguishable at a glance.
+    scheduled: bool = False
 
     model_config = {"from_attributes": True}
 

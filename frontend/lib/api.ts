@@ -27,6 +27,8 @@ export type Thread = {
   first_answer_preview: string | null;
   created_at: string;
   updated_at: string;
+  /** A scheduled job owns this thread — show a timer marker in lists. */
+  scheduled?: boolean;
 };
 
 export type ChatMessage = {
