@@ -32,7 +32,7 @@ def test_finished_events_are_dropped():
 
 
 def test_cap_at_max_events():
-    symbols = [f"AA{c}{c}" for c in "ABCDEFG"]
+    symbols = [f"T{i:02d}" for i in range(events.MAX_EVENTS + 1)]
     cal = {"upcoming_dividend": [{**BBMD, "symbol": f"{s}.JK"} for s in symbols]}
     hold = [{"symbol": s, "shares": 100} for s in symbols]
     assert len(events.normalize(cal, hold, date(2025, 7, 10))) == events.MAX_EVENTS

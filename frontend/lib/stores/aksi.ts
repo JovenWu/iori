@@ -62,6 +62,7 @@ function fromReport(r: Report) {
   const events: Record<string, AksiEvent> = {};
   const order: string[] = [];
   for (const re of r.events) {
+    if (re.event.event_id in events) continue;
     events[re.event.event_id] = { ...re.event, figures: re.figures, findings: re.findings, brief: re.brief };
     order.push(re.event.event_id);
   }
@@ -169,10 +170,15 @@ export const useAksiStore = create<AksiStore>()((set, get) => {
         break;
       case "event_found": {
         const pe = d as unknown as PublicEvent;
-        set((s) => ({
-          events: { ...s.events, [pe.event_id]: { ...pe, findings: [] } },
-          order: [...s.order, pe.event_id],
-        }));
+        set((s) =>
+          // Re-emitted ids (buffer replay, duplicate rows) must not push a
+          // second order entry or wipe already-collected findings.
+          s.order.includes(pe.event_id)
+            ? {}
+            : {
+                events: { ...s.events, [pe.event_id]: { ...pe, findings: [] } },
+                order: [...s.order, pe.event_id],
+              });
         break;
       }
       case "numbers":
@@ -262,12 +268,27 @@ export const useAksiStore = create<AksiStore>()((set, get) => {
       void get().loadLatest(mode);
     },
 
-    setAsOf: (day) => set({ asOf: day }),
+    setAsOf: (day) =>
+      set((s) => ({
+        asOf: day,
+        // A replay board is only meaningful for its own date — clear it the
+        // moment a different date is picked instead of showing stale data.
+        ...(s.reportMode === "replay" && s.reportAsOf?.slice(0, 10) !== day
+          ? { events: {}, order: [], reportId: null, reportMode: null, reportAsOf: null }
+          : {}),
+      })),
 
     loadLatest: async (mode) => {
+      const m = mode ?? get().mode;
       try {
-        const r = await getLatestReport(mode);
+        const r = await getLatestReport(m, m === "replay" ? get().asOf : undefined);
         if (get().running) return;
+        if (m === "replay" && r.as_of.slice(0, 10) !== get().asOf) {
+          // The picked replay date has no matching report — empty board,
+          // never another date's data.
+          set({ events: {}, order: [], reportId: null, reportMode: null, reportAsOf: null });
+          return;
+        }
         const { events, order } = fromReport(r);
         set({
           events,
@@ -297,13 +318,18 @@ export const useAksiStore = create<AksiStore>()((set, get) => {
     reattach: async () => {
       if (get().running || controller) return false;
       const ctrl = new AbortController();
+      controller = ctrl; // claim before the await — a second caller must bail
       let stream: AsyncGenerator<AksiStreamEvent> | null;
       try {
         stream = await resumeAksiCheck(ctrl.signal);
       } catch {
+        if (controller === ctrl) controller = null;
         return false; // probe failed (network/401) — the caller loads the report
       }
-      if (!stream) return false; // 404 — no active run
+      if (!stream) {
+        if (controller === ctrl) controller = null;
+        return false; // 404 — no active run
+      }
       beginRun(ctrl);
       void consume(stream, ctrl);
       return true;

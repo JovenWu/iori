@@ -13,7 +13,7 @@ from app.sectors.freshness import WIB
 KINDS = ["right_issue", "warrant", "upcoming_dividend", "dividend"]
 SCAN_BACK_DAYS = 30
 SCAN_AHEAD_DAYS = 60  # back + ahead = the calendar's 90-day window cap
-MAX_EVENTS = 5
+MAX_EVENTS = 20
 _DONE_PHASES = {"expired", "paid"}
 _KEY_DATE = {
     "right_issue": "ex_date",

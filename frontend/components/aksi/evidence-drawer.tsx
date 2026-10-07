@@ -11,7 +11,18 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { type AksiEvent, copy, formatDate, formatFigure } from "@/lib/aksi";
+import {
+  type AksiEvent,
+  copy,
+  figureLabel,
+  formatDate,
+  formatFigure,
+  formatInputValue,
+  gapText,
+  humanizeVars,
+  inputLabel,
+  sourceLabel,
+} from "@/lib/aksi";
 import { useSettings } from "@/lib/settings";
 
 export function EvidenceDrawer({ event }: { event: AksiEvent }) {
@@ -40,16 +51,22 @@ export function EvidenceDrawer({ event }: { event: AksiEvent }) {
               {figures.map((f) => (
                 <div key={f.key} className="space-y-1 px-3 py-2">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-mono text-xs text-muted-foreground">{f.key}</span>
+                    <span className="text-xs text-muted-foreground">{figureLabel(f.key, lang, event.kind)}</span>
                     <span className="font-mono">{formatFigure(f, lang)}</span>
                   </div>
-                  <div className="font-mono text-[11px] text-muted-foreground">{f.formula}</div>
+                  <div className="break-words font-mono text-[11px] text-muted-foreground">
+                    {humanizeVars(f.formula, lang)}
+                  </div>
                   {Object.keys(f.inputs).length > 0 && (
-                    <div className="font-mono text-[11px] text-muted-foreground">
-                      {JSON.stringify(f.inputs)}
-                    </div>
+                    <dl className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                      {Object.entries(f.inputs).map(([k, v]) => (
+                        <span key={k}>
+                          {inputLabel(k, lang)} <span className="font-mono text-ink-muted">{formatInputValue(v, lang)}</span>
+                        </span>
+                      ))}
+                    </dl>
                   )}
-                  {f.gap && <div className="text-[11px] text-destructive">{f.gap}</div>}
+                  {f.gap && <div className="break-words text-[11px] text-destructive">{gapText(f.gap, lang)}</div>}
                 </div>
               ))}
             </div>
@@ -60,7 +77,7 @@ export function EvidenceDrawer({ event }: { event: AksiEvent }) {
               <ul className="space-y-2">
                 {event.findings.map((f) => (
                   <li key={f.id} className="text-xs">
-                    <span className="font-mono text-muted-foreground">{f.source_tool}</span>
+                    <span className="font-mono text-muted-foreground">{sourceLabel(f.source_tool, lang)}</span>
                     {f.fetched_at && (
                       <span className="text-muted-foreground"> · {t.fetched} {formatDate(f.fetched_at, lang)}</span>
                     )}

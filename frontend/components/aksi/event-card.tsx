@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import { ChevronDownIcon } from "lucide-react";
+
 import { EvidenceDrawer } from "@/components/aksi/evidence-drawer";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -7,9 +10,13 @@ import {
   type Lang,
   KIND_LABEL,
   copy,
+  deadlineOf,
   formatDate,
   formatFigure,
   formatIdr,
+  gapText,
+  humanizeVars,
+  sourceLabel,
 } from "@/lib/aksi";
 import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
@@ -37,13 +44,28 @@ function Subline({ event, lang }: { event: AksiEvent; lang: Lang }) {
   return <p className="mt-0.5 text-xs text-muted-foreground">{text}</p>;
 }
 
-function Countdown({ days, lang }: { days: number | null; lang: Lang }) {
-  if (days === null) return null;
+function DeadlineChip({ event, asOf, replay, lang }: {
+  event: AksiEvent; asOf: string | null; replay: boolean; lang: Lang;
+}) {
+  const deadline = deadlineOf(event, asOf);
+  if (!deadline) return null;
   const t = copy[lang];
+  const days = event.urgency;
+  const soon = days !== null && days <= 2;
+  // Replay speaks in absolute dates (relative days would lie about "today");
+  // live reads better relative — a past deadline still falls back to the date.
+  let text: string;
+  if (replay) text = formatDate(deadline, lang);
+  else if (days === 0) text = t.today;
+  else if (days !== null && days > 0) text = t.inDays(days);
+  else text = formatDate(deadline, lang);
   return (
-    <span className={cn("shrink-0 rounded-md border px-2 py-0.5 font-mono text-xs",
-      days <= 2 ? "border-destructive/50 text-destructive" : "border-border text-muted-foreground")}>
-      {days <= 0 ? t.today : t.inDays(days)}
+    <span
+      aria-label={`${t.deadlineLabel}: ${formatDate(deadline, lang)}`}
+      className={cn("shrink-0 rounded-md border px-2 py-0.5 font-mono text-xs",
+        soon ? "border-destructive/50 text-destructive" : "border-border text-muted-foreground")}
+    >
+      {text}
     </span>
   );
 }
@@ -65,7 +87,7 @@ function NumbersGrid({ event, lang }: { event: AksiEvent; lang: Lang }) {
           const fig = f[tile.key];
           return (
             <div key={tile.key} className="rounded-lg border border-border px-3 py-2"
-              title={fig ? `${fig.formula}${fig.gap ? ` — ${fig.gap}` : ""}` : undefined}>
+              title={fig ? `${humanizeVars(fig.formula, lang)}${fig.gap ? ` — ${gapText(fig.gap, lang)}` : ""}` : undefined}>
               <div className="text-xs text-muted-foreground">{tile.label}</div>
               <div className="mt-1 font-mono text-base text-foreground">{formatFigure(fig, lang)}</div>
             </div>
@@ -93,15 +115,30 @@ function Timeline({ event, asOf, lang }: { event: AksiEvent; asOf: string | null
     ...(today ? [{ key: "today", label: t.today, date: today, isToday: true }] : []),
   ].sort((a, b) => a.date.localeCompare(b.date));
   return (
-    <ol className="flex gap-5 overflow-x-auto px-4 py-3" aria-label={t.timelineAria}>
-      {items.map((p) => (
-        <li key={p.key} className="flex min-w-24 flex-col gap-1">
-          <span aria-hidden className={cn("size-2 rounded-full",
-            p.isToday ? "bg-primary" : today && p.date <= today ? "bg-muted-foreground" : "border border-muted-foreground")} />
-          <span className={cn("text-xs", p.isToday ? "text-foreground" : "text-muted-foreground")}>{p.label}</span>
-          <span className="font-mono text-xs">{formatDate(p.date, lang)}</span>
-        </li>
-      ))}
+    <ol className="flex px-4 py-3" aria-label={t.timelineAria}>
+      {items.map((p, i) => {
+        const last = i === items.length - 1;
+        return (
+          <li key={p.key}
+            className={cn("flex min-w-0 flex-col", last ? "w-2 flex-none items-end" : "flex-1")}>
+            <div className="flex h-2 items-center">
+              <span aria-hidden className={cn("size-2 shrink-0 rounded-full",
+                p.isToday ? "bg-primary" : today && p.date <= today ? "bg-muted-foreground" : "border border-muted-foreground")} />
+              {!last && <span aria-hidden className="h-px flex-1 bg-border" />}
+            </div>
+            <div className={cn("mt-1 flex flex-col gap-1", last ? "w-24 items-end" : "pr-4")}>
+              <span title={p.label}
+                className={cn("truncate text-xs",
+                  p.isToday ? "text-foreground" : "text-muted-foreground", last && "w-full text-right")}>
+                {p.label}
+              </span>
+              <span className={cn("truncate font-mono text-xs", last && "w-full text-right")}>
+                {formatDate(p.date, lang)}
+              </span>
+            </div>
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -128,7 +165,7 @@ function Context({ event, lang }: { event: AksiEvent; lang: Lang }) {
         <li key={f.id} className="text-sm text-ink-muted">
           {lang === "id" ? f.text_id : f.text_en}{" "}
           <span className="ml-1 whitespace-nowrap rounded border border-border px-1 py-0.5 font-mono text-[11px] text-muted-foreground">
-            {f.source_tool.replace(/^sectors_/, "")}
+            {sourceLabel(f.source_tool, lang)}
             {f.fetched_at ? ` · ${formatDate(f.fetched_at, lang)}` : ""}
           </span>
         </li>
@@ -164,30 +201,50 @@ function BriefBlock({ event, lang }: { event: AksiEvent; lang: Lang }) {
   );
 }
 
-export function EventCard({ event, asOf }: { event: AksiEvent; asOf: string | null }) {
+export function EventCard({ event, asOf, replay }: {
+  event: AksiEvent; asOf: string | null; replay: boolean;
+}) {
   const lang = useSettings().settings.language;
   const t = copy[lang];
+  const [open, setOpen] = useState(false);
   return (
-    <article className="divide-y divide-border rounded-xl border border-border bg-card">
-      <header className="flex items-start justify-between gap-3 px-4 py-3">
+    <article className="rounded-xl border border-border bg-card">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={t.toggleDetails}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-start justify-between gap-3 rounded-xl px-4 py-3 text-left transition-colors hover:bg-secondary/50"
+      >
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-sm font-semibold text-foreground">{event.symbol}</span>
-            <span className="text-sm text-muted-foreground">· {KIND_LABEL[event.kind][lang]}</span>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 font-mono text-sm font-semibold text-foreground">{event.symbol}</span>
+            <span className="min-w-0 truncate text-sm text-muted-foreground">
+              {KIND_LABEL[event.kind][lang]}
+            </span>
           </div>
           <Subline event={event} lang={lang} />
         </div>
-        <Countdown days={event.urgency} lang={lang} />
-      </header>
-      <NumbersGrid event={event} lang={lang} />
-      <Timeline event={event} asOf={asOf} lang={lang} />
-      <Scenarios event={event} lang={lang} />
-      <Context event={event} lang={lang} />
-      <BriefBlock event={event} lang={lang} />
-      <footer className="flex items-center justify-between gap-3 px-4 py-2">
-        <span className="text-xs text-muted-foreground">{t.cardDisclaimer}</span>
-        <EvidenceDrawer event={event} />
-      </footer>
+        <div className="flex shrink-0 items-center gap-2">
+          <DeadlineChip event={event} asOf={asOf} replay={replay} lang={lang} />
+          <ChevronDownIcon
+            className={cn("size-4 text-muted-foreground transition-transform duration-200", open && "rotate-180")}
+          />
+        </div>
+      </button>
+      {open && (
+        <div className="divide-y divide-border border-t border-border">
+          <NumbersGrid event={event} lang={lang} />
+          <Timeline event={event} asOf={asOf} lang={lang} />
+          <Scenarios event={event} lang={lang} />
+          <Context event={event} lang={lang} />
+          <BriefBlock event={event} lang={lang} />
+          <footer className="flex items-center justify-between gap-3 px-4 py-2">
+            <span className="text-xs text-muted-foreground">{t.cardDisclaimer}</span>
+            <EvidenceDrawer event={event} />
+          </footer>
+        </div>
+      )}
     </article>
   );
 }

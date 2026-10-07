@@ -64,6 +64,18 @@ async def test_impact_returns_figures(client, monkeypatch):
     assert body["events"][0]["figures"]["rights_entitled"]["value"] == 1250
 
 
+async def test_latest_replay_report_filters_by_as_of(client, monkeypatch):
+    fx.install_fakes(monkeypatch)
+    h = await _login(client)
+    await _check(client, h, {"as_of": fx.AS_OF})
+    ok = await client.get(
+        f"/api/v1/aksi/reports/latest?mode=replay&as_of={fx.AS_OF}", headers=h)
+    assert ok.status_code == 200 and ok.json()["as_of"] == fx.AS_OF
+    miss = await client.get(
+        "/api/v1/aksi/reports/latest?mode=replay&as_of=2021-01-04", headers=h)
+    assert miss.status_code == 404
+
+
 async def test_latest_report_404_before_any_check(client):
     h = await _login(client)
     assert (await client.get("/api/v1/aksi/reports/latest", headers=h)).status_code == 404

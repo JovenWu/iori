@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -71,8 +72,9 @@ async def stop_check(current_user: User = Depends(deps.get_current_user)):
 
 @router.get("/reports/latest", response_model=ReportOut)
 async def latest_report(mode: str | None = Query(None, pattern="^(live|replay)$"),
+                        as_of: date | None = Query(None),
                         current_user: User = Depends(deps.get_current_user)):
-    report = await store.latest_report(current_user.id, mode)
+    report = await store.latest_report(current_user.id, mode, as_of)
     if report is None:
         raise HTTPException(status_code=404, detail="No report yet")
     return report

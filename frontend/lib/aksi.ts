@@ -97,6 +97,98 @@ export const KIND_LABEL: Record<EventKind, Record<Lang, string>> = {
   warrant: { en: "Warrant", id: "Waran" },
 };
 
+const SOURCE_LABEL: Record<string, Record<Lang, string>> = {
+  sectors_insider_filings: { en: "Insider filings", id: "Laporan orang dalam" },
+  sectors_daily_prices: { en: "Daily prices", id: "Harga harian" },
+  sectors_shareholders: { en: "Shareholders", id: "Pemegang saham" },
+  sectors_corporate_actions: { en: "Corporate actions", id: "Aksi korporasi" },
+  sectors_company_corporate_actions: { en: "Corporate actions", id: "Aksi korporasi" },
+  sectors_company_report: { en: "Company report", id: "Laporan emiten" },
+  sectors_news: { en: "News", id: "Berita" },
+  sectors_broker_top: { en: "Top brokers", id: "Broker teratas" },
+};
+
+export function sourceLabel(tool: string, lang: Lang): string {
+  const hit = SOURCE_LABEL[tool];
+  if (hit) return hit[lang];
+  const words = tool.replace(/^sectors_/, "").replaceAll("_", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/* Evidence drawer — figure keys, formula/input variable names, and gap
+   strings ship as code identifiers; these maps render them as words. */
+
+const FIGURE_LABEL: Record<string, Record<Lang, string>> = {
+  rights_entitled: { en: "Rights entitled (HMETD)", id: "HMETD yang diperoleh" },
+  dilution_if_ignored: { en: "Dilution if ignored", id: "Dilusi jika dibiarkan" },
+  cost_to_exercise_all: { en: "Cost to exercise all", id: "Dana untuk tebus semua" },
+  terp: { en: "TERP (theoretical)", id: "TERP (teoretis)" },
+  right_value: { en: "Value per right", id: "Nilai per HMETD" },
+  rights_value_total: { en: "Theoretical rights value", id: "Nilai teoretis hak" },
+  value_if_ignored: { en: "Position value if ignored", id: "Nilai posisi jika dibiarkan" },
+  value_if_exercised: { en: "Position value if exercised", id: "Nilai posisi jika ditebus" },
+  discount_to_market: { en: "Exercise price vs market", id: "Harga tebus vs pasar" },
+  deadline: { en: "Deadline", id: "Tenggat" },
+  days_to_deadline: { en: "Days to deadline", id: "Hari menuju tenggat" },
+  days_to_cum: { en: "Days to cum date", id: "Hari menuju tanggal cum" },
+  gross_dividend: { en: "Gross dividend", id: "Dividen bruto" },
+  yield_on_cost: { en: "Yield on cost", id: "Yield atas modal" },
+  intrinsic_per_warrant: { en: "Intrinsic value per warrant", id: "Nilai intrinsik per waran" },
+};
+
+const VAR_LABEL: Record<string, Record<Lang, string>> = {
+  shares: { en: "shares", id: "lembar" },
+  old_ratio: { en: "old ratio", id: "rasio lama" },
+  new_ratio: { en: "new ratio", id: "rasio baru" },
+  price: { en: "exercise price", id: "harga tebus" },
+  p_cum: { en: "cum price", id: "harga cum" },
+  p_now: { en: "current price", id: "harga kini" },
+  terp: { en: "TERP", id: "TERP" },
+  right_value: { en: "right value", id: "nilai HMETD" },
+  rights_entitled: { en: "rights", id: "HMETD" },
+  dividend_amount: { en: "dividend per share", id: "dividen per saham" },
+  avg_price: { en: "avg price", id: "harga rata-rata" },
+  today: { en: "today", id: "hari ini" },
+  target: { en: "target date", id: "tanggal tujuan" },
+  deadline: { en: "deadline", id: "tenggat" },
+  date: { en: "date", id: "tanggal" },
+  cum_date: { en: "cum date", id: "tanggal cum" },
+  ex_per_end: { en: "exercise end", id: "akhir pelaksanaan" },
+  maturity_date: { en: "maturity", id: "jatuh tempo" },
+  trading_period_end: { en: "rights deadline", id: "batas HMETD" },
+};
+
+export function figureLabel(key: string, lang: Lang, kind?: EventKind): string {
+  const tile = kind ? copy[lang].tiles[kind].find((x) => x.key === key) : undefined;
+  const label = tile?.label ?? FIGURE_LABEL[key]?.[lang];
+  if (label) return label;
+  const words = key.replaceAll("_", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+export function inputLabel(key: string, lang: Lang): string {
+  return VAR_LABEL[key]?.[lang] ?? key.replaceAll("_", " ");
+}
+
+export function humanizeVars(text: string, lang: Lang): string {
+  return text.replace(/[a-z_]+/g, (m) => VAR_LABEL[m]?.[lang] ?? m.replaceAll("_", " "));
+}
+
+export function gapText(gap: string, lang: Lang): string {
+  const fields = gap.replace(/^missing:\s*/i, "");
+  return `${copy[lang].missingFields} ${humanizeVars(fields, lang)}`;
+}
+
+export function formatInputValue(v: unknown, lang: Lang): string {
+  const n = typeof v === "number" ? v : Number(v);
+  if (v !== null && v !== "" && !Number.isNaN(n)) {
+    return new Intl.NumberFormat(lang === "id" ? "id-ID" : "en-US", {
+      maximumFractionDigits: 2,
+    }).format(n);
+  }
+  return String(v);
+}
+
 const MONTHS: Record<Lang, string[]> = {
   id: ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"],
   en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
@@ -144,6 +236,33 @@ export function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** The deadline an event's `urgency` counts down to — mirrors the backend's
+ * `_urgency` target per kind. Returns "YYYY-MM-DD" or null. */
+export function deadlineOf(ev: AksiEvent, asOf: string | null): string | null {
+  const row = ev.row;
+  let raw: unknown;
+  if (ev.kind === "right_issue") raw = row.trading_period_end;
+  else if (ev.kind === "warrant") raw = row.ex_per_end ?? row.maturity_date;
+  else {
+    const cum = row.cum_date ? String(row.cum_date).slice(0, 10) : "";
+    raw = cum && (!asOf || asOf <= cum) ? row.cum_date : row.payment_date;
+  }
+  const s = raw ? String(raw).slice(0, 10) : "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
+/** "YYYY-MM-DD" → local Date (no UTC shift). */
+export function parseDay(iso: string): Date {
+  return new Date(`${iso.slice(0, 10)}T00:00:00`);
+}
+
+/** local Date → "YYYY-MM-DD" (no UTC shift). */
+export function toDayIso(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
 /* UI copy, keyed by display language. The global toggle switches both
    chrome and brief content (briefs/findings ship both languages). */
 
@@ -152,8 +271,6 @@ export type AksiCopy = {
   sidebarLabel: string;
   modeToday: string;
   modeReplay: string;
-  replayDateAria: string;
-  langAria: string;
   check: string;
   stop: string;
   replayBannerPre: string;
@@ -172,6 +289,18 @@ export type AksiCopy = {
   ariaAvgPrice: string;
   removeRow: string;
   addHolding: string;
+  holdingsEmpty: string;
+  holdingsEmptyCta: string;
+  holdingsCount: (n: number) => string;
+  editHoldings: string;
+  filteredTo: string;
+  clearFilter: string;
+  pickReplayDate: string;
+  toggleDetails: string;
+  actSoon: string;
+  upcoming: string;
+  noDeadline: string;
+  emptyForSymbol: (symbol: string) => string;
   errTicker: string;
   errShares: string;
   errDuplicate: string;
@@ -182,6 +311,8 @@ export type AksiCopy = {
   timelineAria: string;
   today: string;
   inDays: (n: number) => string;
+  deadlineLabel: string;
+  noReplayFor: (date: string) => string;
   ratio: string;
   exercisePrice: string;
   dividendPerShare: string;
@@ -203,6 +334,7 @@ export type AksiCopy = {
   figuresHeading: string;
   contextHeading: string;
   fetched: string;
+  missingFields: string;
   rawHeading: string;
   limitations: string;
   tiles: Record<EventKind, { key: string; label: string }[]>;
@@ -215,8 +347,6 @@ export const copy: Record<Lang, AksiCopy> = {
     sidebarLabel: "Corporate Actions",
     modeToday: "Today",
     modeReplay: "Replay",
-    replayDateAria: "Replay date",
-    langAria: "Language",
     check: "Check corporate actions",
     stop: "Stop",
     replayBannerPre: "Historical replay — data as of",
@@ -235,6 +365,18 @@ export const copy: Record<Lang, AksiCopy> = {
     ariaAvgPrice: "Average price",
     removeRow: "Remove row",
     addHolding: "Add holding",
+    holdingsEmpty: "No holdings yet.",
+    holdingsEmptyCta: "Add a holding",
+    holdingsCount: (n) => `${n} holding${n === 1 ? "" : "s"}`,
+    editHoldings: "Edit holdings",
+    filteredTo: "Showing",
+    clearFilter: "Clear ticker filter",
+    pickReplayDate: "Pick replay date",
+    toggleDetails: "Toggle details",
+    actSoon: "Due soon",
+    upcoming: "Upcoming",
+    noDeadline: "No deadline set",
+    emptyForSymbol: (s) => `No corporate actions for ${s}`,
     errTicker: "Ticker must be 4 letters, e.g. BBCA.",
     errShares: "Shares must be a whole number ≥ 1.",
     errDuplicate: "Duplicate tickers are not allowed.",
@@ -244,7 +386,9 @@ export const copy: Record<Lang, AksiCopy> = {
     checkFailed: "Check failed",
     timelineAria: "Timeline",
     today: "Today",
-    inDays: (n) => `in ${n} days`,
+    inDays: (n) => (n === 1 ? "in 1 day" : `in ${n} days`),
+    deadlineLabel: "Deadline",
+    noReplayFor: (d) => `No replay for ${d} yet — run a check.`,
     ratio: "Ratio",
     exercisePrice: "Exercise price",
     dividendPerShare: "Dividend per share",
@@ -266,6 +410,7 @@ export const copy: Record<Lang, AksiCopy> = {
     figuresHeading: "Figures & formulas",
     contextHeading: "Context",
     fetched: "fetched",
+    missingFields: "Missing data:",
     rawHeading: "Raw corporate-action data",
     limitations: "Limitations: calendar data does not include announcement dates; replay mode only uses data up to the replay date; the controlling-shareholder name comes from the latest ownership data.",
     tiles: {
@@ -312,8 +457,6 @@ export const copy: Record<Lang, AksiCopy> = {
     sidebarLabel: "Aksi Korporasi",
     modeToday: "Hari ini",
     modeReplay: "Replay",
-    replayDateAria: "Tanggal replay",
-    langAria: "Bahasa",
     check: "Cek aksi korporasi",
     stop: "Stop",
     replayBannerPre: "Replay historis — data per",
@@ -332,6 +475,18 @@ export const copy: Record<Lang, AksiCopy> = {
     ariaAvgPrice: "Harga rata-rata",
     removeRow: "Hapus baris",
     addHolding: "Tambah saham",
+    holdingsEmpty: "Belum ada saham.",
+    holdingsEmptyCta: "Tambah saham",
+    holdingsCount: (n) => `${n} saham`,
+    editHoldings: "Ubah saham",
+    filteredTo: "Menampilkan",
+    clearFilter: "Hapus filter saham",
+    pickReplayDate: "Pilih tanggal replay",
+    toggleDetails: "Lihat detail",
+    actSoon: "Mendesak",
+    upcoming: "Mendatang",
+    noDeadline: "Tanpa tenggat",
+    emptyForSymbol: (s) => `Belum ada aksi korporasi untuk ${s}`,
     errTicker: "Ticker harus 4 huruf, mis. BBCA.",
     errShares: "Jumlah lembar harus bilangan bulat ≥ 1.",
     errDuplicate: "Ticker ganda tidak diperbolehkan.",
@@ -342,6 +497,8 @@ export const copy: Record<Lang, AksiCopy> = {
     timelineAria: "Linimasa",
     today: "Hari ini",
     inDays: (n) => `${n} hari lagi`,
+    deadlineLabel: "Tenggat",
+    noReplayFor: (d) => `Belum ada replay untuk ${d} — jalankan pengecekan.`,
     ratio: "Rasio",
     exercisePrice: "Harga pelaksanaan",
     dividendPerShare: "Dividen per saham",
@@ -363,6 +520,7 @@ export const copy: Record<Lang, AksiCopy> = {
     figuresHeading: "Angka & rumus",
     contextHeading: "Konteks",
     fetched: "diambil",
+    missingFields: "Data tidak tersedia:",
     rawHeading: "Data mentah aksi korporasi",
     limitations: "Batasan: data kalender tidak memuat tanggal pengumuman; mode replay hanya memakai data sampai tanggal replay; nama pemegang saham utama berasal dari data kepemilikan terkini.",
     tiles: {

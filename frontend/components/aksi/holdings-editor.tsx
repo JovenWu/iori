@@ -36,7 +36,8 @@ function parse(rows: Row[]): { holdings: Holding[]; errorKey: keyof Pick<AksiCop
   return { holdings, errorKey: null };
 }
 
-export function HoldingsEditor({ initial }: { initial: Holding[] }) {
+/** The row grid + save action, hosted inside HoldingsEditDialog. */
+export function HoldingsEditor({ initial, onSaved }: { initial: Holding[]; onSaved?: () => void }) {
   const [rows, setRows] = useState<Row[]>(() => toRows(initial));
   const [saving, setSaving] = useState(false);
   const running = useAksiStore((s) => s.running);
@@ -54,49 +55,44 @@ export function HoldingsEditor({ initial }: { initial: Holding[] }) {
     setSaving(true);
     const ok = await useAksiStore.getState().saveHoldings(holdings);
     setSaving(false);
-    if (ok) toast.success(t.savedToast);
+    if (ok) {
+      toast.success(t.savedToast);
+      onSaved?.();
+    }
   };
 
   return (
-    <section className="rounded-xl border border-border bg-card">
-      <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <div>
-          <h2 className="text-sm font-medium tracking-tight">{t.holdingsTitle}</h2>
-          <p className="text-xs text-muted-foreground">{t.holdingsDesc}</p>
+    <div className="space-y-2">
+      <div className={`${COLS} text-xs text-muted-foreground`}>
+        <span>{t.colTicker}</span>
+        <span>{t.colShares}</span>
+        <span>{t.colAvgPrice}</span>
+        <span />
+      </div>
+      {rows.map((r, i) => (
+        <div key={i} className={COLS}>
+          <Input aria-label={t.ariaTicker} value={r.symbol} maxLength={7} placeholder="BBCA"
+            className="font-mono uppercase" onChange={(e) => update(i, { symbol: e.target.value })} />
+          <Input aria-label={t.ariaShares} inputMode="numeric" value={r.shares} placeholder="1000"
+            className="font-mono" onChange={(e) => update(i, { shares: e.target.value.replace(/[^\d]/g, "") })} />
+          <Input aria-label={t.ariaAvgPrice} inputMode="decimal" value={r.avgPrice} placeholder="—"
+            className="font-mono" onChange={(e) => update(i, { avgPrice: e.target.value.replace(/[^\d.]/g, "") })} />
+          <Button size="icon-sm" variant="ghost" aria-label={t.removeRow}
+            onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((_, j) => j !== i) : [BLANK]))}>
+            <Trash2Icon className="size-4" />
+          </Button>
         </div>
-        <Button size="sm" variant="secondary" disabled={!dirty || !!error || saving || running} onClick={save}>
+      ))}
+      <div className="flex items-center justify-between gap-3 pt-1">
+        <Button size="sm" variant="ghost" disabled={rows.length >= 30} onClick={() => setRows((rs) => [...rs, BLANK])}>
+          <PlusIcon className="size-4" />
+          {t.addHolding}
+        </Button>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <Button size="sm" className="ml-auto" disabled={!dirty || !!error || saving || running} onClick={save}>
           {saving ? t.saving : t.save}
         </Button>
-      </header>
-      <div className="space-y-2 px-4 py-3">
-        <div className={`${COLS} text-xs text-muted-foreground`}>
-          <span>{t.colTicker}</span>
-          <span>{t.colShares}</span>
-          <span>{t.colAvgPrice}</span>
-          <span />
-        </div>
-        {rows.map((r, i) => (
-          <div key={i} className={COLS}>
-            <Input aria-label={t.ariaTicker} value={r.symbol} maxLength={7} placeholder="BBCA"
-              className="font-mono uppercase" onChange={(e) => update(i, { symbol: e.target.value })} />
-            <Input aria-label={t.ariaShares} inputMode="numeric" value={r.shares} placeholder="1000"
-              className="font-mono" onChange={(e) => update(i, { shares: e.target.value.replace(/[^\d]/g, "") })} />
-            <Input aria-label={t.ariaAvgPrice} inputMode="decimal" value={r.avgPrice} placeholder="—"
-              className="font-mono" onChange={(e) => update(i, { avgPrice: e.target.value.replace(/[^\d.]/g, "") })} />
-            <Button size="icon-sm" variant="ghost" aria-label={t.removeRow}
-              onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((_, j) => j !== i) : [BLANK]))}>
-              <Trash2Icon className="size-4" />
-            </Button>
-          </div>
-        ))}
-        <div className="flex items-center justify-between gap-3">
-          <Button size="sm" variant="ghost" disabled={rows.length >= 30} onClick={() => setRows((rs) => [...rs, BLANK])}>
-            <PlusIcon className="size-4" />
-            {t.addHolding}
-          </Button>
-          {error && <p className="text-xs text-destructive">{error}</p>}
-        </div>
       </div>
-    </section>
+    </div>
   );
 }

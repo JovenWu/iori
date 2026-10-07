@@ -305,5 +305,10 @@ export async function resumeAksiCheck(
 }
 export const stopAksiCheck = () =>
   apiFetch<{ stopped: boolean }>("/aksi/check/stop", { method: "POST" });
-export const getLatestReport = (mode?: "live" | "replay") =>
-  apiFetch<Report>(`/aksi/reports/latest${mode ? `?mode=${mode}` : ""}`);
+export const getLatestReport = (mode?: "live" | "replay", asOf?: string) => {
+  const params = new URLSearchParams();
+  if (mode) params.set("mode", mode);
+  if (asOf) params.set("as_of", asOf);
+  const q = params.toString();
+  return apiFetch<Report>(`/aksi/reports/latest${q ? `?${q}` : ""}`);
+};

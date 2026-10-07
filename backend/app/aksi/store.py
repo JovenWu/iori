@@ -83,7 +83,8 @@ async def finish_report(report_id: str, status: str, credits: int | None) -> Non
         await db.commit()
 
 
-async def latest_report(user_id: int, mode: str | None = None) -> dict | None:
+async def latest_report(user_id: int, mode: str | None = None,
+                        as_of: date | None = None) -> dict | None:
     stmt = (
         select(AksiReport)
         .where(AksiReport.user_id == user_id, AksiReport.status != "running")
@@ -92,6 +93,8 @@ async def latest_report(user_id: int, mode: str | None = None) -> dict | None:
     )
     if mode:
         stmt = stmt.where(AksiReport.mode == mode)
+    if as_of:
+        stmt = stmt.where(AksiReport.as_of == as_of)
     async with async_session_maker() as db:
         report = (await db.execute(stmt)).scalars().first()
     return _report(report) if report else None
