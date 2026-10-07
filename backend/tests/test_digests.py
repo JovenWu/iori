@@ -3,7 +3,6 @@
 import pytest
 from unittest.mock import AsyncMock
 
-from app.core.config import settings
 from app.memory import digests
 from app.models.thread import Thread
 
@@ -36,14 +35,6 @@ async def test_digest_lifecycle(db, user, fake_embed):
     assert d.digest == "User analyzed banks and telcos."
     assert d.stale_turns == 0
     assert d.message_count == 8
-
-    await digests.mark_stale(db, t.id)
-    assert (
-        await digests.get_digest(db, t.id)
-    ).stale_turns == settings.THREAD_DIGEST_STALE_TURNS
-
-    await digests.delete_digest(db, t.id)
-    assert await digests.get_digest(db, t.id) is None
 
 
 @pytest.mark.asyncio

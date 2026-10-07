@@ -1,6 +1,12 @@
 # Aksi Korporasi Copilot — Full Product & Technical Spec
 
-> **Approved design — this is the feature being built.** Implementation plan: `docs/superpowers/plans/2026-10-06-aksi-korporasi.md`. Where this spec and the plan differ on file names or signatures, the plan wins.
+> **Superseded — built.** The feature shipped as the `/action` route (this doc
+> says `/aksi`) with the current endpoint set and layout; some details below
+> (Python version, endpoint paths, component layout) no longer match the code.
+> Kept for design rationale only — the README and implementation plan are
+> authoritative.
+>
+> Implementation plan: `docs/superpowers/plans/2026-10-06-aksi-korporasi.md`.
 
 | | |
 |---|---|

@@ -97,7 +97,7 @@ Pick a broker (e.g. a foreign institutional one); the agent traces what it has b
 
 Thesis Guardian watches holdings and escalates to the Tip Investigator when an alarm fires. Best story, largest scope.
 
-## E + F. The Standing Committee — status: SELECTED direction
+## E + F. The Standing Committee — status: not selected (Aksi Korporasi shipped instead — phase 14)
 
 > "An investment committee that keeps meeting after you close the app."
 

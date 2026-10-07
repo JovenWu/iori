@@ -18,7 +18,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.api.v1.api import api_router
 from app.core.config import settings
-from app.core.handlers import register_exception_handlers
+from app.core.jev import jev_close
 from app.core.logging import setup_logging
 from app.core.middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
 from app.core.ratelimit import limiter
@@ -59,6 +59,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await sectors_client.close_client()
+        await jev_close()
         await service.shutdown_service()
         logger.info("Shutdown complete.")
 
@@ -83,7 +84,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-register_exception_handlers(app)
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 

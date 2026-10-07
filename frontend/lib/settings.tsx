@@ -18,8 +18,6 @@ export interface AppSettings {
   sendWithEnter: boolean
   /** Toast when a thread that kept generating in the background finishes. */
   notifyOnDone: boolean
-  /** Let the assistant store long-term memories between conversations. */
-  memoryEnabled: boolean
   /** Reply language (chat) + Corporate Actions page language. */
   language: LanguagePreference
 }
@@ -30,7 +28,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: "dark",
   sendWithEnter: true,
   notifyOnDone: true,
-  memoryEnabled: true,
   language: "en",
 }
 

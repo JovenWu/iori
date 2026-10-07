@@ -78,7 +78,11 @@ export function AksiView() {
   useEffect(() => {
     const store = useAksiStore.getState();
     void store.loadHoldings();
-    void store.loadLatest(store.mode);
+    // A check may still be running server-side after a refresh — its replay
+    // buffer rebuilds the board; otherwise show the latest persisted report.
+    void store.reattach().then((attached) => {
+      if (!attached) void store.loadLatest(store.mode);
+    });
   }, []);
 
   return (

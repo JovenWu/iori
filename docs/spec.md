@@ -1,5 +1,9 @@
 # sectors-agent — Backend Design Spec
 
+> **Superseded** — historical document kept for reference. The shipped code
+> differs (Python 3.10 container, newer endpoint set, current layout); the
+> root `README.md` is authoritative.
+
 Sectors Hackathon 2026 · Track 01 (AI Agents & Assistants) · Build groundwork for a
 Sectors-powered agentic workflow. This document covers the backend foundation:
 auth, a ReAct agent loop, long-term memory, context management, resumable SSE

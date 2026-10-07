@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.aksi.budget import DEFAULT_BUDGET
+
 _SYMBOL = re.compile(r"^[A-Z]{4}$")
 _MIN_DATE = date(2021, 1, 1)
 
@@ -52,7 +54,7 @@ class HoldingsOut(BaseModel):
 class CheckRequest(BaseModel):
     as_of: date | None = None
     symbols: list[str] | None = Field(default=None, max_length=30)
-    budget: int = Field(default=25, ge=5, le=40)
+    budget: int = Field(default=DEFAULT_BUDGET, ge=5, le=40)
 
     @field_validator("as_of")
     @classmethod

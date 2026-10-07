@@ -191,32 +191,6 @@ function LanguageSelect() {
   )
 }
 
-function BrowserNotificationsSwitch() {
-  const supported =
-    typeof window !== "undefined" && "Notification" in window
-  const [granted, setGranted] = useState(
-    () => supported && Notification.permission === "granted",
-  )
-
-  return (
-    <Switch
-      checked={granted}
-      disabled={!supported}
-      aria-label="Browser notifications"
-      onCheckedChange={(checked) => {
-        if (!checked) {
-          // Browsers don't allow revoking programmatically; the setting just
-          // reflects the permission state.
-          return
-        }
-        void Notification.requestPermission().then((permission) => {
-          setGranted(permission === "granted")
-        })
-      }}
-    />
-  )
-}
-
 interface SettingsModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -338,29 +312,11 @@ export function SettingsModal({
                       aria-label="Response ready alerts"
                     />
                   </SettingRow>
-                  <SettingRow
-                    title="Browser notifications"
-                    description="Allow this device to show system notifications."
-                  >
-                    <BrowserNotificationsSwitch />
-                  </SettingRow>
                 </>
               )}
 
               {section === "memory" && (
                 <>
-                  <SettingRow
-                    title="Remember across chats"
-                    description="Let the assistant keep helpful details between conversations."
-                  >
-                    <Switch
-                      checked={settings.memoryEnabled}
-                      onCheckedChange={(checked) =>
-                        updateSettings({ memoryEnabled: checked })
-                      }
-                      aria-label="Remember across chats"
-                    />
-                  </SettingRow>
                   <SettingRow
                     title="Saved memories"
                     description="Review and delete what the assistant has remembered."

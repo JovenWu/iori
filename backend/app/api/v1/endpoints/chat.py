@@ -91,7 +91,11 @@ async def stop_thread(
     thread = await service.get_thread(db, current_user.id, thread_id)
     if thread is None:
         raise HTTPException(status_code=404, detail="Thread not found")
-    stopped = await registry.stop_and_wait(str(thread_id))
+    tid = str(thread_id)
+    # Serialized with chat_stream/delete_thread — a racing stop must not kill
+    # a just-started run that hasn't emitted `started` yet.
+    async with service.thread_lock(tid):
+        stopped = await registry.stop_and_wait(tid)
     return {"detail": "Stop requested" if stopped else "No active run", "stopped": stopped}
 
 

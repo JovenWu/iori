@@ -42,5 +42,3 @@ Output: {"facts": []}
 # NOTES
 - Return an empty list when the user reveals no new relevant fact about themself.
 - Do not repeat facts already present in the conversation summary.
-
-Here is the conversation to process:

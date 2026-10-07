@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,18 +30,11 @@ def _token_response(user: User) -> dict[str, Any]:
     }
 
 
-@router.post("/login", response_model=Token)
-@limiter.limit("10/minute")
-async def login(
-    request: Request,
-    body: LoginRequest,
-    db: AsyncSession = Depends(deps.get_db),
-) -> Any:
-    """Authenticate the env-configured account; auto-provisions the user row
-    on first successful login. There is no registration endpoint."""
+async def _login_user(db: AsyncSession, username: str, password: str) -> User:
+    """Check the env-configured credentials; auto-provision the user row."""
     valid = secrets.compare_digest(
-        body.username, settings.APP_USERNAME
-    ) and secrets.compare_digest(body.password, settings.APP_PASSWORD)
+        username, settings.APP_USERNAME
+    ) and secrets.compare_digest(password, settings.APP_PASSWORD)
     if not valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -58,8 +52,31 @@ async def login(
         await db.refresh(user)
     elif not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
+    return user
 
-    return _token_response(user)
+
+@router.post("/login", response_model=Token)
+@limiter.limit("10/minute")
+async def login(
+    request: Request,
+    body: LoginRequest,
+    db: AsyncSession = Depends(deps.get_db),
+) -> Any:
+    """Authenticate the env-configured account; auto-provisions the user row
+    on first successful login. There is no registration endpoint."""
+    return _token_response(await _login_user(db, body.username, body.password))
+
+
+@router.post("/token", response_model=Token)
+@limiter.limit("10/minute")
+async def token(
+    request: Request,
+    form: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(deps.get_db),
+) -> Any:
+    """OAuth2 password flow — the same credentials as /login. Exists so
+    Swagger's Authorize button (the OAuth2PasswordBearer tokenUrl) works."""
+    return _token_response(await _login_user(db, form.username, form.password))
 
 
 @router.post("/refresh", response_model=Token)

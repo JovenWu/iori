@@ -218,7 +218,8 @@ async def brief(state: dict, config) -> dict:
 
 
 async def finish(state: dict, config) -> dict:
-    await store.finish_report(state["report_id"], "done", state["credits_used"])
+    # Terminal status is written once by run_check after the stream ends —
+    # including the empty-holdings case where this graph never runs.
     await emit(config, "budget", {"credits_used": state["credits_used"],
                                   "budget": state["budget"]})
     return {}

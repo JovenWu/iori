@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A page (`/aksi`) where a user enters the IDX stocks they hold, presses "Cek aksi korporasi", and an agent finds the corporate actions affecting those holdings (rights issues, dividends, warrants), computes the personal impact deterministically, gathers sourced context from Sectors data, and writes a gated bilingual brief per event — streamed live and saved as a report. Includes a labelled historical replay mode.
+**Goal:** A page (`/action`) where a user enters the IDX stocks they hold, presses "Cek aksi korporasi", and an agent finds the corporate actions affecting those holdings (rights issues, dividends, warrants), computes the personal impact deterministically, gathers sourced context from Sectors data, and writes a gated bilingual brief per event — streamed live and saved as a report. Includes a labelled historical replay mode.
 
 **Architecture:** New backend package `app/aksi/` with a dedicated LangGraph (`scan → context → investigate → compute → brief → persist`, looping per event) run as a detached job on the existing run registry and streamed over SSE (same envelope as chat). Pure calculators produce every number; the LLM may only write placeholders, and a deterministic + JEV gate rejects digits or advice language (template fallback). Raw Sectors reads go through the existing permanent cache with the same keys as the chat tools. The frontend adds a route inside the `(chat)` layout, a sidebar item, a zustand store and event-card components that reuse the Spark `AgentStatus`.
 
@@ -141,7 +141,8 @@ CHECKS = [
      {"start": (REPLAY_AS_OF - timedelta(days=89)).isoformat(),
       "end": REPLAY_AS_OF.isoformat()}, Freshness.EOD, 1),
     ("wifi_filings", "filings", "/v2/filings/",
-     {"limit": 30, "symbol": "WIFI", "start": "2025-05-02",
+     {"limit": 30, "symbol": "WIFI",
+      "start": (REPLAY_AS_OF - timedelta(days=45)).isoformat(),
       "end": REPLAY_AS_OF.isoformat()}, Freshness.NEWS, 1),
     ("wifi_shareholders", "shareholders",
      "/v2/company/shareholders-composition/WIFI/", {"year": 2025},
@@ -3768,12 +3769,12 @@ git commit -m "phase 14j: aksi frontend types, client, store"
 ### Task 10: Page, sidebar item, holdings editor, run status
 
 **Files:**
-- Create: `frontend/app/(chat)/aksi/page.tsx`, `frontend/components/aksi/aksi-view.tsx`, `frontend/components/aksi/holdings-editor.tsx`
+- Create: `frontend/app/(chat)/action/page.tsx`, `frontend/components/aksi/aksi-view.tsx`, `frontend/components/aksi/holdings-editor.tsx`
 - Modify: `frontend/components/sidebar-threads.tsx`
 
 **Interfaces:**
 - Consumes: `useAksiStore`, `AgentStatus`, shadcn `Button`/`Input`/`SidebarTrigger`/`SidebarMenuBadge`, `EventCard` (Task 11 — render a placeholder `<pre>` until it lands, or implement Task 11 in the same session).
-- Produces: route `/aksi`; `AksiView`; `HoldingsEditor({ initial })`.
+- Produces: route `/action`; `AksiView`; `HoldingsEditor({ initial })`.
 
 - [ ] **Step 1: Read the Next 16 docs** for app-router pages/layouts in `frontend/node_modules/next/dist/docs/` (the route lives in the existing `(chat)` group, so it inherits the auth guard and sidebar).
 
@@ -4045,10 +4046,10 @@ export function AksiView() {
             <SidebarMenuButton
               asChild
               tooltip="Aksi Korporasi"
-              isActive={pathname === "/aksi"}
+              isActive={pathname === "/action"}
               className="h-10 px-4"
             >
-              <Link href="/aksi">
+              <Link href="/action">
                 <CalendarClockIcon />
                 <span className="group-data-[collapsible=icon]:hidden">
                   Aksi Korporasi
@@ -4065,12 +4066,12 @@ export function AksiView() {
 
 Run: `docker compose exec frontend npx tsc --noEmit && docker compose exec frontend npx eslint .`
 Expected: no errors (once Task 11's `event-card.tsx` exists).
-Manual: open http://localhost:3000/aksi → add WIFI 1000 + BBCA 500 → Simpan → reload → rows persist.
+Manual: open http://localhost:3000/action → add WIFI 1000 + BBCA 500 → Simpan → reload → rows persist.
 
 - [ ] **Step 7: Commit (after user review)**
 
 ```bash
-git add "frontend/app/(chat)/aksi/page.tsx" frontend/components/aksi/aksi-view.tsx frontend/components/aksi/holdings-editor.tsx frontend/components/sidebar-threads.tsx
+git add "frontend/app/(chat)/action/page.tsx" frontend/components/aksi/aksi-view.tsx frontend/components/aksi/holdings-editor.tsx frontend/components/sidebar-threads.tsx
 git commit -m "phase 14k: aksi page, holdings editor, sidebar entry"
 ```
 
@@ -4440,11 +4441,11 @@ Run: `docker compose exec backend python -m pytest tests` → all pass.
 Run: `docker compose exec frontend npx tsc --noEmit && docker compose exec frontend npx eslint . && docker compose exec frontend npm run build` → clean.
 
 - [ ] **Step 2: Live and replay runs (real API — spends credits once, then cached)**
-1. `/aksi` → holdings: WIFI 1000, plus the live symbols found in Task 0 (realistic share counts).
+1. `/action` → holdings: WIFI 1000, plus the live symbols found in Task 0 (realistic share counts).
 2. Mode **Replay**, date `2025-07-10` (or the date chosen in Task 0) → **Cek aksi korporasi**. Expect the WIFI card: 1.250 HMETD, Rp2.500.000, TERP from the real 2025-07-01 close, −55,56%, deadline 15 Jul 2025, findings with evidence chips, and a brief. Check `credits x/25`.
 3. Mode **Hari ini** → run → live events for the Task 0 symbols.
 4. Run both again → `/api/v1/sectors/cache/stats` shows hits increasing; a second run costs ~0 credits.
-5. Stop mid-run → partial report persists; reload `/aksi` → the latest report is shown.
+5. Stop mid-run → partial report persists; reload `/action` → the latest report is shown.
 
 - [ ] **Step 3: Copy audit** — grep rendered briefs (`/api/v1/aksi/reports/latest`) for every word in `gate.BANNED`. None may appear. Spot-check three figures by hand against §11 of the spec.
 

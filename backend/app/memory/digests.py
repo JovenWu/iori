@@ -12,7 +12,7 @@ from typing import Sequence
 from uuid import UUID
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from sqlalchemy import delete, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -98,21 +98,6 @@ async def bump_stale_turns(db: AsyncSession, thread_id: str | UUID) -> None:
         digest.stale_turns = (digest.stale_turns or 0) + 1
         digest.last_turn_at = datetime.now(timezone.utc)
         await db.flush()
-
-
-async def mark_stale(db: AsyncSession, thread_id: str | UUID) -> None:
-    """Force regeneration on the next turn (e.g. after a turn was deleted)."""
-    digest = await get_digest(db, thread_id)
-    if digest is not None:
-        digest.stale_turns = settings.THREAD_DIGEST_STALE_TURNS
-        await db.flush()
-
-
-async def delete_digest(db: AsyncSession, thread_id: str | UUID) -> None:
-    await db.execute(
-        delete(ThreadDigest).where(ThreadDigest.thread_id == thread_id)
-    )
-    await db.flush()
 
 
 # ---------------------------------------------------------------------------

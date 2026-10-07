@@ -62,7 +62,10 @@ async def check_stream(last_seq: int = Query(0, ge=0),
 
 @router.post("/check/stop", response_model=StopOut)
 async def stop_check(current_user: User = Depends(deps.get_current_user)):
-    stopped = await registry.stop_and_wait(service.run_key(current_user.id))
+    key = service.run_key(current_user.id)
+    # Serialized with start_check — a racing stop must not kill a just-started run.
+    async with registry.thread_lock(key):
+        stopped = await registry.stop_and_wait(key)
     return {"detail": "Stop requested" if stopped else "No active check", "stopped": stopped}
 
 

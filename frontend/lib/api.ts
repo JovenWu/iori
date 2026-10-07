@@ -216,29 +216,9 @@ export const listMemories = () =>
 export const deleteMemory = (id: string) =>
   apiFetch<{ detail: string }>(`/memories/${id}`, { method: "DELETE" });
 
-/** POST an SSE endpoint — yields parsed events until the run finishes. */
-async function* streamSSE<E>(
-  path: string,
-  body: unknown,
-  signal?: AbortSignal,
-): AsyncGenerator<E> {
-  const token = getAccessToken();
-  const resp = await fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(body),
-    signal,
-  });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new ApiError(resp.status, err.detail ?? `HTTP ${resp.status}`);
-  }
-  if (!resp.body) throw new ApiError(0, "No response body");
-
-  const reader = resp.body.getReader();
+/** Parse a streaming SSE body into typed events until the server closes it. */
+async function* readSSE<E>(body: ReadableStream<Uint8Array>): AsyncGenerator<E> {
+  const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   try {
@@ -262,6 +242,34 @@ async function* streamSSE<E>(
   }
 }
 
+async function requireStreamBody(resp: Response): Promise<ReadableStream<Uint8Array>> {
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new ApiError(resp.status, err.detail ?? `HTTP ${resp.status}`);
+  }
+  if (!resp.body) throw new ApiError(0, "No response body");
+  return resp.body;
+}
+
+/** POST an SSE endpoint — yields parsed events until the run finishes. */
+async function* streamSSE<E>(
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): AsyncGenerator<E> {
+  const token = getAccessToken();
+  const resp = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  yield* readSSE(await requireStreamBody(resp));
+}
+
 /** POST /chat/stream — yields parsed SSE events until the run finishes. */
 export function streamChat(
   message: string,
@@ -282,6 +290,19 @@ export const streamAksiCheck = (
   body: { as_of?: string | null },
   signal?: AbortSignal,
 ) => streamSSE<AksiStreamEvent>("/aksi/check", body, signal);
+/** GET /aksi/check/stream — reattach to a live check's replay buffer.
+ *  Returns null on 404 (no run in flight). */
+export async function resumeAksiCheck(
+  signal?: AbortSignal,
+): Promise<AsyncGenerator<AksiStreamEvent> | null> {
+  const token = getAccessToken();
+  const resp = await fetch(`${BASE}/aksi/check/stream`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    signal,
+  });
+  if (resp.status === 404) return null;
+  return readSSE<AksiStreamEvent>(await requireStreamBody(resp));
+}
 export const stopAksiCheck = () =>
   apiFetch<{ stopped: boolean }>("/aksi/check/stop", { method: "POST" });
 export const getLatestReport = (mode?: "live" | "replay") =>

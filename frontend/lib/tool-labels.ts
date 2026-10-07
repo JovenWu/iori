@@ -38,6 +38,7 @@ const LABELS: Record<string, string> = {
   sectors_list_tags: "Listing stock tags",
   sectors_compare: "Comparing tickers",
   aksi_calc: "Computing your figures",
+  aksi_investigate: "Investigating",
   aksi_brief: "Writing brief",
   aksi_impact: "Computing corporate-action impact",
   compute: "Computing",

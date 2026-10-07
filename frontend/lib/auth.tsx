@@ -17,6 +17,7 @@ import {
   storeAuthUser,
   type User,
 } from "@/lib/api"
+import { resetAksiStore } from "@/lib/stores/aksi"
 import { resetChatStore } from "@/lib/stores/chat"
 import { resetThreadsStore } from "@/lib/stores/threads"
 import { useRouter, usePathname } from "next/navigation"
@@ -52,9 +53,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       clearTokens()
       // Session is dead — drop cached app state so a fresh login never sees
-      // the previous user's threads or chat.
+      // the previous user's threads, chat, or corporate-action board.
       resetChatStore()
       resetThreadsStore()
+      resetAksiStore()
       setToken(null)
       setUser(null)
       return false
@@ -103,6 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void apiLogout()
     resetChatStore()
     resetThreadsStore()
+    resetAksiStore()
     setToken(null)
     setUser(null)
     router.replace("/login")

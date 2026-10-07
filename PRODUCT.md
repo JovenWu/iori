@@ -34,5 +34,5 @@ Quiet, precise, technical. Software-craft documentation energy — a dark canvas
 
 - WCAG AA contrast on all text; muted tiers only for non-essential meta.
 - `prefers-reduced-motion` honored — spark rests lit, shimmer becomes plain text.
-- Status line is a real `<button aria-expanded>`; the live verb sits in `aria-live` territory.
+- Status line is a `div` with `role="button"` when expandable (`role="status"` otherwise); the live verb sits in `aria-live` territory.
 - Keyboard: composer submits on Enter, newline on Shift+Enter; sidebar collapsible via keyboard.
