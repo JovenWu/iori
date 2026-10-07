@@ -41,6 +41,12 @@ const LABELS: Record<string, string> = {
   aksi_investigate: "Investigating",
   aksi_brief: "Writing brief",
   aksi_impact: "Computing corporate-action impact",
+  aksi_check: "Checking corporate actions",
+  aksi_report: "Reading a saved check",
+  aksi_reports: "Listing past checks",
+  holdings_list: "Reading holdings",
+  holdings_save: "Saving holdings",
+  holdings_remove: "Removing holding",
   compute: "Computing",
 };
 

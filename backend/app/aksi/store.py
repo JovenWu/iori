@@ -100,6 +100,22 @@ async def latest_report(user_id: int, mode: str | None = None,
     return _report(report) if report else None
 
 
+async def list_reports(user_id: int, limit: int = 10) -> list[dict]:
+    """Recent checks, newest first — compact rows without the events payload."""
+    stmt = (
+        select(AksiReport)
+        .where(AksiReport.user_id == user_id)
+        .order_by(AksiReport.created_at.desc())
+        .limit(limit)
+    )
+    async with async_session_maker() as db:
+        rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {**_report(r), "events": len(r.events or [])}
+        for r in rows
+    ]
+
+
 async def get_report(user_id: int, report_id: str) -> dict | None:
     async with async_session_maker() as db:
         report = await db.get(AksiReport, uuid.UUID(report_id))

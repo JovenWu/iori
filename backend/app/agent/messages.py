@@ -7,7 +7,9 @@ instead of a plain string. These read the pieces each consumer cares about:
 summary of its own thinking.
 """
 
-from typing import Any
+from typing import Any, Sequence
+
+from langchain_core.messages import BaseMessage, HumanMessage
 
 
 def message_text(content: Any) -> str:
@@ -34,3 +36,17 @@ def message_reasoning(content: Any) -> str:
         for s in (b.get("summary") or [])
         if isinstance(s, dict)
     )
+
+
+def recent_context(messages: Sequence[BaseMessage], limit: int = 6) -> str:
+    """Last few turns as 'role: text' lines — a bare follow-up like 'what if
+    I miss it' only judges correctly when the router, gates and recall
+    queries can see the topic it refers to."""
+    lines = []
+    for m in messages[-limit:]:
+        role = "user" if isinstance(m, HumanMessage) else "assistant"
+        text = m.content if isinstance(m.content, str) else ""
+        text = " ".join(text.split())[:200]
+        if text:
+            lines.append(f"{role}: {text}")
+    return "\n".join(lines)

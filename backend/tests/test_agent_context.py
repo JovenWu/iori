@@ -38,7 +38,7 @@ async def test_gates_fallback_when_jev_down(monkeypatch):
         return None
 
     monkeypatch.setattr(context, "jev_ask", no_jev)
-    needs_memory, needs_threads = await context._context_gates("halo", "")
+    needs_memory, needs_threads = await context._context_gates("halo", "", "")
     assert needs_memory is True
     assert needs_threads is False
 
@@ -54,7 +54,7 @@ async def test_gates_read_noul_answers(monkeypatch):
         )
 
     monkeypatch.setattr(context, "jev_ask", fake_ask)
-    assert await context._context_gates("what was my name again?", "") == (
+    assert await context._context_gates("what was my name again?", "", "") == (
         True,
         False,
     )
@@ -109,7 +109,38 @@ async def test_context_manager_skips_recall_without_db(monkeypatch):
         {"messages": [HumanMessage(content="hi")], "summary": "", "summarized_upto": 0},
         {"configurable": {}},
     )
-    assert updates == {}
+    assert updates == {"recalled_memories": "", "related_threads": ""}
+    spy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_context_manager_clears_stale_recall(monkeypatch):
+    """A gated-off turn must not inherit last turn's recalled blocks — they
+    persist in checkpoint state, so an explicit clear is required."""
+    async def no_memory(state, questions):
+        return SimpleNamespace(
+            nouls={
+                "needs_user_memory": SimpleNamespace(noul=0.1),
+                "needs_past_chats": SimpleNamespace(noul=0.1),
+            }
+        )
+
+    monkeypatch.setattr(context, "jev_ask", no_memory)
+    spy = AsyncMock(return_value="[LONG-TERM MEMORIES]")
+    monkeypatch.setattr(context, "recall_memories", spy)
+
+    updates = await context.context_manager(
+        {
+            "messages": [HumanMessage(content="ok thanks")],
+            "summary": "",
+            "summarized_upto": 0,
+            "recalled_memories": "[LONG-TERM MEMORIES]\n- stale\n[/]",
+            "related_threads": "Related past chats:\n- old",
+        },
+        {"configurable": {"db": object(), "user_id": 1, "thread_id": "t1"}},
+    )
+    assert updates["recalled_memories"] == ""
+    assert updates["related_threads"] == ""
     spy.assert_not_awaited()
 
 

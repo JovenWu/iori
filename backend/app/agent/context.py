@@ -19,7 +19,7 @@ import tiktoken
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-from app.agent.messages import message_reasoning, message_text
+from app.agent.messages import message_reasoning, message_text, recent_context
 from app.agent.state import ChatState
 from app.core.config import settings
 from app.core.jev import Noul, jev_ask
@@ -79,10 +79,13 @@ def _find_summary_boundary(
     return boundary if boundary > summarized_upto else None
 
 
-async def _context_gates(query: str, summary: str) -> tuple[bool, bool]:
-    """JEV parallel Noul gates → (needs_user_memory, needs_past_chats)."""
+async def _context_gates(query: str, summary: str, recent: str) -> tuple[bool, bool]:
+    """JEV parallel Noul gates → (needs_user_memory, needs_past_chats).
+    `recent` carries the last few turns so bare follow-ups still judge
+    against their topic."""
     result = await jev_ask(
-        {"latest_user_message": query, "conversation_summary": summary},
+        {"latest_user_message": query, "recent_messages": recent,
+         "conversation_summary": summary},
         {
             "needs_user_memory": Noul(
                 instructions=(
@@ -137,22 +140,26 @@ async def context_manager(state: ChatState, config: RunnableConfig) -> dict:
     summary = state.get("summary", "")
     summarized_upto = state.get("summarized_upto", 0)
 
-    updates: dict[str, Any] = {}
+    updates: dict[str, Any] = {"recalled_memories": "", "related_threads": ""}
     query = _last_user_query(messages)
-    needs_memory, needs_threads = await _context_gates(query, summary)
+    recent = recent_context(messages)
+    needs_memory, needs_threads = await _context_gates(query, summary, recent)
 
     if db is not None and user_id is not None and query:
+        # The bare last message is often a follow-up ("what if I miss it?")
+        # with no topic of its own — context lets retrieval find it.
+        recall_q = f"{recent}\n{query}" if recent else query
         if needs_memory:
             try:
                 updates["recalled_memories"] = await recall_memories(
-                    db, user_id, query
+                    db, user_id, recall_q
                 )
             except Exception:
                 logger.exception("context_manager: memory recall failed")
         if needs_threads:
             try:
                 digests = await get_related_threads(
-                    db, user_id, query, exclude_thread_id=cfg.get("thread_id")
+                    db, user_id, recall_q, exclude_thread_id=cfg.get("thread_id")
                 )
                 updates["related_threads"] = format_thread_signal(digests)
             except Exception:

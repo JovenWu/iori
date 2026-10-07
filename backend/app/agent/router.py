@@ -11,6 +11,7 @@ import logging
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
+from app.agent.messages import recent_context
 from app.agent.state import ChatState
 from app.core.jev import Choice, jev_ask
 
@@ -30,9 +31,11 @@ WORKFLOWS: dict[str, str] = {
         "answer can be synthesized."
     ),
     "corporate_actions": (
-        "Questions about what a stock's corporate actions — rights issues "
-        "(HMETD), dividends, warrants — mean for the user's own shares: "
-        "entitlement, cost, dilution, deadlines."
+        "Corporate actions — rights issues (HMETD), dividends, warrants — for "
+        "the user's own shares: entitlement, cost, dilution, deadlines. Also "
+        "managing the user's tracked stock holdings (add/update/remove "
+        "tickers) and running or reading a full corporate-actions check on "
+        "their portfolio."
     ),
 }
 
@@ -50,12 +53,16 @@ async def router(state: ChatState, config: RunnableConfig) -> dict:
     result = await jev_ask(
         {
             "latest_user_message": _last_user_query(state.get("messages", [])),
+            "recent_messages": recent_context(state.get("messages", [])),
             "conversation_summary": state.get("summary", ""),
         },
         {
             "route": Choice(
                 instructions=(
-                    "Pick the workflow that best handles the user's message."
+                    "Pick the workflow that best handles the user's message. "
+                    "Follow-up messages rely on recent_messages for topic — "
+                    "e.g. 'what if I miss it?' after a BAJA rights issue "
+                    "answer is still corporate_actions."
                 ),
                 criteria=dict(WORKFLOWS),
             )

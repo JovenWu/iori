@@ -44,6 +44,30 @@ async def test_jev_choice_routes_to_deep_research(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_router_passes_recent_turns_for_followups(monkeypatch):
+    """A bare follow-up like 'what if I miss it?' needs the prior turns in the
+    JEV payload or it misroutes to general."""
+    seen = {}
+
+    async def fake_ask(state, questions):
+        seen.update(state)
+        return SimpleNamespace(
+            choices={"route": SimpleNamespace(choice="corporate_actions")}
+        )
+
+    monkeypatch.setattr(router, "jev_ask", fake_ask)
+    state = _state("what will happen if i miss this?")
+    state["messages"] = [
+        HumanMessage(content="does BAJA have corporate actions?"),
+        *state["messages"][:0],
+    ]
+    state["messages"].append(HumanMessage(content="what will happen if i miss this?"))
+    await router.router(state, {})
+    assert "BAJA" in seen["recent_messages"]
+    assert seen["latest_user_message"] == "what will happen if i miss this?"
+
+
+@pytest.mark.asyncio
 async def test_invalid_or_missing_choice_falls_back(monkeypatch):
     async def bad_choice(state, questions):
         return SimpleNamespace(

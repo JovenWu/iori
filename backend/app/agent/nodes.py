@@ -47,12 +47,19 @@ _WORKFLOW_HINTS = {
         "doesn't cover. Cite fetched_at for the figures quoted."
     ),
     "corporate_actions": (
-        "The user asks what a corporate action means for their shares. Call "
-        "aksi_impact with the ticker and share count (ask for the share count "
-        "if missing; 1 lot = 100 shares) and quote its figures and dates — "
-        "never compute them yourself. Present neutral scenarios (if exercised / "
-        "if sold / if left alone); never advise buying, selling, holding or "
-        "exercising. End with: 'Informasi edukatif, bukan rekomendasi investasi.'"
+        "The user asks about corporate actions, their tracked holdings, or "
+        "wants a check run. Tools: holdings_list / holdings_save / "
+        "holdings_remove manage their tracked holdings (1 lot = 100 shares; "
+        "ask the share count if missing); aksi_check runs a full scan over "
+        "their saved holdings — it spends Sectors credits, so run it only "
+        "when asked; results also appear on the Corporate Actions page; "
+        "aksi_reports lists past checks and aksi_report opens one — review "
+        "them to answer questions about what a check found; aksi_impact computes "
+        "figures for one ticker (ask the share count if missing). Quote tool "
+        "figures and dates — never compute them yourself. Present neutral "
+        "scenarios (if exercised / if sold / if left alone); never advise "
+        "buying, selling, holding or exercising. End with: 'Informasi "
+        "edukatif, bukan rekomendasi investasi.'"
     ),
 }
 
