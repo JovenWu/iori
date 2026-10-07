@@ -33,9 +33,12 @@ _WORKFLOW_HINTS = {
         "The user needs IDX market data — use the sectors_* tools rather than "
         "memory for market facts. Keep calls cheap: prefer the structured "
         "screener `where` over `q`, request only needed report "
-        "sections/periods, and don't paginate unless asked. Cite the data's "
-        "fetched_at when quoting figures; if a result is marked stale and the "
-        "question depends on the latest data, retry the tool with refresh=true."
+        "sections/periods, and don't paginate unless asked. For miners, the "
+        "sectors_mining_* and sectors_commodity_prices tools cover operations, "
+        "production, sites, and commodity prices/trade — resolve company slugs "
+        "via sectors_mining_companies first. Cite the data's fetched_at when "
+        "quoting figures; if a result is marked stale and the question depends "
+        "on the latest data, retry the tool with refresh=true."
     ),
     "deep_research": (
         "Multi-step research task — gather broadly before answering: pull each "

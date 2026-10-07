@@ -1334,6 +1334,327 @@ async def sectors_compare(
     )
 
 
+# ---------------------------------------------------------------------------
+# Mining extension — Indonesian miners, commodity prices, production, trade.
+# Annual/slow-moving data → STATIC cache; monthly prices → EOD.
+# ---------------------------------------------------------------------------
+
+# Valid `commodity_type` values differ per endpoint — keep them separate so a
+# wrong value fails locally with a hint instead of burning the request.
+_MINING_COMPANY_COMMODITIES = {
+    "aluminium": "Aluminium", "coal": "Coal", "copper": "Copper",
+    "gold": "Gold", "nickel": "Nickel", "silver": "Silver",
+    "zinc and lead": "Zinc and Lead",
+}
+_MINING_COMPANY_TYPES = {
+    "consultant": "Consultant", "contractor": "Contractor",
+    "holding": "Holding", "manufacturer": "Manufacturer",
+    "mine owner": "Mine Owner", "trader": "Trader",
+}
+_MINING_PERF_COMMODITIES = {
+    "coal": "Coal", "copper": "Copper", "gold": "Gold", "nickel": "Nickel",
+    "silver": "Silver",
+}
+_MINING_SITE_COMMODITIES = {
+    "coal": "Coal", "copper": "Copper", "gold": "Gold", "nickel": "Nickel",
+}
+_MINING_EXPORT_COMMODITIES = {
+    "coal": "Coal", "copper": "Copper", "gold": "Gold",
+}
+_MINING_GLOBAL_COMMODITIES = {
+    "bauxite": "Bauxite", "coal": "Coal", "copper": "Copper", "gold": "Gold",
+    "nickel": "Nickel",
+}
+_MINING_SITE_SORTS = {
+    "production_volume", "-production_volume",
+    "strip_ratio", "-strip_ratio", "year", "-year",
+}
+
+
+def _norm_mining_value(value: str, allowed: dict[str, str], field: str):
+    """Case-insensitive enum normalize → canonical casing or error."""
+    v = allowed.get(value.strip().lower())
+    if v is None:
+        return None, _err(
+            f"invalid_{field}",
+            hint=f"one of: {', '.join(allowed.values())}",
+        )
+    return v, None
+
+
+@tool
+async def sectors_mining_companies(
+    keyword: str | None = None,
+    commodity_type: str | None = None,
+    company_type: str | None = None,
+    has_financials: bool | None = None,
+    limit: int = 20,
+    refresh: bool = False,
+) -> str:
+    """Search Indonesian mining companies by name, IDX ticker, or key
+    operation — filterable by commodity and company type. Results carry the
+    `slug` needed by the detail/performance/site tools; `symbol` is null for
+    private subsidiaries of listed groups. 1 credit.
+
+    Args:
+        keyword: Search text — company name, IDX symbol (e.g. "ADRO"), slug,
+            or operation (e.g. "coal mining").
+        commodity_type: Aluminium, Coal, Copper, Gold, Nickel, Silver, or
+            "Zinc and Lead".
+        company_type: Consultant, Contractor, Holding, Manufacturer,
+            Mine Owner, or Trader.
+        has_financials: True to keep only companies with financial data.
+        limit: Results per page, max 30.
+        refresh: Bypass the cache and fetch fresh data.
+    """
+    params: dict[str, Any] = {}
+    if keyword:
+        params["keyword"] = keyword.strip()
+    if commodity_type:
+        v, err = _norm_mining_value(
+            commodity_type, _MINING_COMPANY_COMMODITIES, "commodity_type"
+        )
+        if err:
+            return err
+        params["commodity_type"] = v
+    if company_type:
+        v, err = _norm_mining_value(
+            company_type, _MINING_COMPANY_TYPES, "company_type"
+        )
+        if err:
+            return err
+        params["company_type"] = v
+    if has_financials is not None:
+        params["has_financials"] = has_financials
+    params["limit"] = min(max(limit, 1), 30)
+    return await _call(
+        "mining_companies", "/v2/mining/companies/", params,
+        Freshness.STATIC, 1, refresh,
+    )
+
+
+@tool
+async def sectors_mining_company_detail(slug: str, refresh: bool = False) -> str:
+    """Operational detail for one mining company — activities, commodities,
+    IUPK licenses, contracts, site count, contacts. Get slugs from
+    sectors_mining_companies. 1 credit.
+
+    Args:
+        slug: Kebab-case company slug, e.g. "pt-adaro-indonesia".
+        refresh: Bypass the cache and fetch fresh data.
+    """
+    s = _norm_slug(slug)
+    if not s:
+        return _err(
+            "invalid_slug",
+            hint="kebab-case slug from sectors_mining_companies, e.g. 'pt-adaro-indonesia'",
+        )
+    return await _call(
+        "mining_company_detail", f"/v2/mining/companies/{s}/", {},
+        Freshness.STATIC, 1, refresh,
+    )
+
+
+@tool
+async def sectors_mining_company_performance(
+    slug: str,
+    year: int | None = None,
+    commodity_type: str | None = None,
+    refresh: bool = False,
+) -> str:
+    """Annual operating performance for a mining company — production and
+    sales volumes, strip ratio, resources/reserves, product specs. Pair with
+    sectors_quarterly_financials to tie physical output to financial results.
+    1 credit.
+
+    Args:
+        slug: Kebab-case company slug from sectors_mining_companies.
+        year: Reporting year (e.g. 2024); defaults to the latest available.
+        commodity_type: Coal, Copper, Gold, Nickel, or Silver.
+        refresh: Bypass the cache and fetch fresh data.
+    """
+    s = _norm_slug(slug)
+    if not s:
+        return _err(
+            "invalid_slug",
+            hint="kebab-case slug from sectors_mining_companies, e.g. 'pt-adaro-indonesia'",
+        )
+    params: dict[str, Any] = {}
+    if year is not None:
+        params["year"] = year
+    if commodity_type:
+        v, err = _norm_mining_value(
+            commodity_type, _MINING_PERF_COMMODITIES, "commodity_type"
+        )
+        if err:
+            return err
+        params["commodity_type"] = v
+    return await _call(
+        "mining_company_performance", f"/v2/mining/companies/performance/{s}/",
+        params, Freshness.STATIC, 1, refresh,
+    )
+
+
+@tool
+async def sectors_commodity_prices(
+    commodity: str,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    refresh: bool = False,
+) -> str:
+    """Monthly price history for a commodity (USD/ton) — Coal, Gold, Nickel,
+    Copper, and more. The demand driver behind every IDX miner; max 3-year
+    range per call (longer windows get clamped to the latest 3 years).
+    1 credit.
+
+    Args:
+        commodity: Commodity name, e.g. "Coal", "Nickel", "Gold".
+        start_year: First year (defaults to end_year − 2).
+        end_year: Last year, inclusive (defaults to the current year).
+        refresh: Bypass the cache and fetch fresh data.
+    """
+    name = commodity.strip().title()
+    if not name:
+        return _err("invalid_commodity", hint="e.g. Coal, Nickel, Gold")
+    this_year = datetime.now(timezone.utc).year
+    end = min(end_year or this_year, this_year)
+    start = start_year or end - 2
+    if start > end:
+        return _err("invalid_year", hint="start_year must not exceed end_year")
+    if end - start >= 3:
+        start = end - 2  # upstream caps at a 3-year window
+    return await _call(
+        "commodity_price", f"/v2/mining/commodities/{name}/price/",
+        {"start_year": start, "end_year": end},
+        Freshness.EOD, 1, refresh,
+    )
+
+
+@tool
+async def sectors_mining_sites(
+    province: str | None = None,
+    commodity_type: str | None = None,
+    company: str | None = None,
+    year: int | None = None,
+    order_by: str = "-year",
+    min_production: float | None = None,
+    limit: int = 20,
+    refresh: bool = False,
+) -> str:
+    """Mining sites across Indonesia — filter by province, commodity, company
+    slug, or reporting year; sortable. Rows carry per-site production volume,
+    strip ratio, and coordinates. 1 credit.
+
+    Args:
+        province: Exact province name, e.g. "Kalimantan Timur".
+        commodity_type: Coal, Copper, Gold, or Nickel.
+        company: Company slug from sectors_mining_companies.
+        year: Reporting year.
+        order_by: production_volume, strip_ratio, or year — prefix "-"
+            for descending (default "-year").
+        min_production: Keep sites at or above this production volume.
+        limit: Results per page, max 30.
+        refresh: Bypass the cache and fetch fresh data.
+    """
+    params: dict[str, Any] = {}
+    if province:
+        params["province"] = province.strip().title()
+    if commodity_type:
+        v, err = _norm_mining_value(
+            commodity_type, _MINING_SITE_COMMODITIES, "commodity_type"
+        )
+        if err:
+            return err
+        params["commodity_type"] = v
+    if company:
+        s = _norm_slug(company)
+        if not s:
+            return _err("invalid_company", hint="company slug, e.g. 'pt-maruwai-coal'")
+        params["company"] = s
+    if year is not None:
+        params["year"] = year
+    if order_by not in _MINING_SITE_SORTS:
+        return _err(
+            "invalid_order_by",
+            hint="production_volume | strip_ratio | year (prefix '-' for desc)",
+        )
+    params["order_by"] = order_by
+    if min_production is not None:
+        params["min_production"] = min_production
+    params["limit"] = min(max(limit, 1), 30)
+    return await _call(
+        "mining_sites", "/v2/mining/sites/", params,
+        Freshness.STATIC, 1, refresh,
+    )
+
+
+@tool
+async def sectors_mining_exports(
+    commodity_type: str,
+    year: int,
+    limit: int = 10,
+    refresh: bool = False,
+) -> str:
+    """Top export destinations for an Indonesian commodity in a year —
+    export value USD plus BPS/ESDM volumes. The demand-side context behind
+    a miner's revenue. 1 credit.
+
+    Args:
+        commodity_type: Coal, Copper, or Gold.
+        year: The year to analyze (e.g. 2024).
+        limit: Top countries to return, max 30.
+        refresh: Bypass the cache and fetch fresh data.
+    """
+    v, err = _norm_mining_value(
+        commodity_type, _MINING_EXPORT_COMMODITIES, "commodity_type"
+    )
+    if err:
+        return err
+    return await _call(
+        "mining_exports", "/v2/mining/exports/",
+        {"commodity_type": v, "year": year, "limit": min(max(limit, 1), 30)},
+        Freshness.STATIC, 1, refresh,
+    )
+
+
+@tool
+async def sectors_global_commodity(
+    commodity_type: str | None = None,
+    country: str | None = None,
+    limit: int = 20,
+    refresh: bool = False,
+) -> str:
+    """Global production, reserves, and trade data — for one commodity across
+    countries, or one country's commodity footprint. At least one of the two
+    arguments is required. 1 credit.
+
+    Args:
+        commodity_type: Coal, Gold, Nickel, Copper, or Bauxite.
+        country: Exact country name, e.g. "Australia".
+        limit: Results to return, max 30.
+        refresh: Bypass the cache and fetch fresh data.
+    """
+    params: dict[str, Any] = {"limit": min(max(limit, 1), 30)}
+    if commodity_type:
+        v, err = _norm_mining_value(
+            commodity_type, _MINING_GLOBAL_COMMODITIES, "commodity_type"
+        )
+        if err:
+            return err
+        params["commodity_type"] = v
+    if country:
+        params["country"] = country.strip().title()
+    if "commodity_type" not in params and "country" not in params:
+        return _err(
+            "missing_filter",
+            hint="pass commodity_type (Coal/Gold/Nickel/Copper/Bauxite) or a country name",
+        )
+    return await _call(
+        "global_commodity", "/v2/mining/global-commodity/", params,
+        Freshness.STATIC, 1, refresh,
+    )
+
+
 TOOLS = [
     sectors_screen,
     sectors_company_report,
@@ -1370,4 +1691,11 @@ TOOLS = [
     sectors_list_subindustries,
     sectors_list_tags,
     sectors_compare,
+    sectors_mining_companies,
+    sectors_mining_company_detail,
+    sectors_mining_company_performance,
+    sectors_commodity_prices,
+    sectors_mining_sites,
+    sectors_mining_exports,
+    sectors_global_commodity,
 ]

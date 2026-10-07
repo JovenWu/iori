@@ -418,3 +418,122 @@ async def test_quarterly_financials_multi_symbol_fans_out(db, monkeypatch):
                      "/v2/financials/quarterly/BBRI/"]
     assert set(out["data"]) == {"BBCA", "BBRI"}
     assert all(params["n_quarters"] == 3 for _, params in calls)
+
+
+# --- mining extension ---------------------------------------------------------
+
+
+async def test_mining_companies_search_and_filters(db, monkeypatch):
+    calls = []
+    monkeypatch.setattr(client, "get", _fake_get(calls=calls))
+    await st.sectors_mining_companies.ainvoke(
+        {"keyword": "adaro", "commodity_type": "coal",
+         "company_type": "mine owner", "limit": 99})
+    path, params = calls[0]
+    assert path == "/v2/mining/companies/"
+    assert params["keyword"] == "adaro"
+    assert params["commodity_type"] == "Coal"      # canonical casing
+    assert params["company_type"] == "Mine Owner"  # multi-word preserved
+    assert params["limit"] == 30                   # capped
+
+
+async def test_mining_companies_invalid_enums_skip_upstream(db, monkeypatch):
+    calls = []
+    monkeypatch.setattr(client, "get", _fake_get(calls=calls))
+    out = _parse(await st.sectors_mining_companies.ainvoke(
+        {"commodity_type": "lithium"}))
+    assert out["error"] == "invalid_commodity_type" and calls == []
+    out = _parse(await st.sectors_mining_companies.ainvoke(
+        {"company_type": "bank"}))
+    assert out["error"] == "invalid_company_type" and calls == []
+
+
+async def test_mining_company_detail_and_performance_paths(db, monkeypatch):
+    calls = []
+    monkeypatch.setattr(client, "get", _fake_get(calls=calls))
+    await st.sectors_mining_company_detail.ainvoke({"slug": "PT-Adaro-Indonesia"})
+    assert calls[0] == ("/v2/mining/companies/pt-adaro-indonesia/", {})
+    calls.clear()
+    await st.sectors_mining_company_performance.ainvoke(
+        {"slug": "pt-adaro-indonesia", "year": 2024, "commodity_type": "COAL"})
+    assert calls[0] == (
+        "/v2/mining/companies/performance/pt-adaro-indonesia/",
+        {"year": 2024, "commodity_type": "Coal"},
+    )
+    calls.clear()
+    out = _parse(await st.sectors_mining_company_detail.ainvoke(
+        {"slug": "not a slug!"}))
+    assert out["error"] == "invalid_slug" and calls == []
+    out = _parse(await st.sectors_mining_company_performance.ainvoke(
+        {"slug": "pt-adaro-indonesia", "commodity_type": "lithium"}))
+    assert out["error"] == "invalid_commodity_type" and calls == []
+
+
+async def test_commodity_prices_window_and_clamp(db, monkeypatch):
+    calls = []
+    monkeypatch.setattr(client, "get", _fake_get(calls=calls))
+    this_year = datetime.now(timezone.utc).year
+    await st.sectors_commodity_prices.ainvoke({"commodity": "coal"})
+    path, params = calls[0]
+    assert path == "/v2/mining/commodities/Coal/price/"
+    assert params == {"start_year": this_year - 2, "end_year": this_year}
+    calls.clear()
+    await st.sectors_commodity_prices.ainvoke(
+        {"commodity": "nickel", "start_year": 2010, "end_year": 2024})
+    _, params = calls[0]
+    assert params == {"start_year": 2022, "end_year": 2024}  # 3-yr cap
+    calls.clear()
+    out = _parse(await st.sectors_commodity_prices.ainvoke(
+        {"commodity": "coal", "start_year": 2025, "end_year": 2023}))
+    assert out["error"] == "invalid_year" and calls == []
+
+
+async def test_mining_sites_filters_and_sort(db, monkeypatch):
+    calls = []
+    monkeypatch.setattr(client, "get", _fake_get(calls=calls))
+    await st.sectors_mining_sites.ainvoke({
+        "province": "kalimantan timur", "commodity_type": "coal",
+        "company": "PT-Maruwai-Coal", "year": 2024,
+        "order_by": "-production_volume", "min_production": 5.0,
+    })
+    path, params = calls[0]
+    assert path == "/v2/mining/sites/"
+    assert params["province"] == "Kalimantan Timur"
+    assert params["commodity_type"] == "Coal"
+    assert params["company"] == "pt-maruwai-coal"
+    assert params["order_by"] == "-production_volume"
+    calls.clear()
+    out = _parse(await st.sectors_mining_sites.ainvoke({"order_by": "drop;"}))
+    assert out["error"] == "invalid_order_by" and calls == []
+
+
+async def test_mining_exports_and_global_commodity(db, monkeypatch):
+    calls = []
+    monkeypatch.setattr(client, "get", _fake_get(calls=calls))
+    await st.sectors_mining_exports.ainvoke(
+        {"commodity_type": "GOLD", "year": 2024})
+    assert calls[0] == (
+        "/v2/mining/exports/",
+        {"commodity_type": "Gold", "year": 2024, "limit": 10},
+    )
+    calls.clear()
+    out = _parse(await st.sectors_mining_exports.ainvoke(
+        {"commodity_type": "nickel", "year": 2024}))
+    assert out["error"] == "invalid_commodity_type" and calls == []
+    await st.sectors_global_commodity.ainvoke({"commodity_type": "bauxite"})
+    assert calls[0][0] == "/v2/mining/global-commodity/"
+    assert calls[0][1]["commodity_type"] == "Bauxite"
+    calls.clear()
+    out = _parse(await st.sectors_global_commodity.ainvoke({}))
+    assert out["error"] == "missing_filter" and calls == []
+
+
+async def test_mining_tools_registered():
+    names = {t.name for t in st.TOOLS}
+    for name in (
+        "sectors_mining_companies", "sectors_mining_company_detail",
+        "sectors_mining_company_performance", "sectors_commodity_prices",
+        "sectors_mining_sites", "sectors_mining_exports",
+        "sectors_global_commodity",
+    ):
+        assert name in names
