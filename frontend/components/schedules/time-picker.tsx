@@ -74,7 +74,9 @@ export function TimePicker({
   const [hour, minute] = value.split(":").map((n) => Number(n) || 0);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    // modal — registers the popover as its own scroll layer so the columns
+    // can scroll inside the Dialog's scroll lock.
+    <Popover open={open} onOpenChange={setOpen} modal>
       <PopoverTrigger asChild>
         <Button
           type="button"
