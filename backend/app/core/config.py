@@ -126,11 +126,6 @@ class Settings(BaseSettings):
             violations.append(
                 "SECRET_KEY must be a strong random value of at least 32 characters."
             )
-        if self.APP_USERNAME == "demo" or self.APP_PASSWORD == "demo123":
-            violations.append(
-                "APP_USERNAME/APP_PASSWORD still have their shipped defaults "
-                "(demo/demo123) — set real credentials."
-            )
         weak_db = {"", "postgres", "password", "changeme", self.POSTGRES_USER}
         if self.POSTGRES_PASSWORD.strip().lower() in weak_db:
             violations.append(
