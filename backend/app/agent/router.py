@@ -24,7 +24,9 @@ WORKFLOWS: dict[str, str] = {
         "screening, company or subsector reports, rankings, broker activity, "
         "foreign flow, filings, suspensions, corporate actions, listing "
         "performance, market news, mining companies/sites/production, and "
-        "commodity prices or trade."
+        "commodity prices or trade. Also creating or managing scheduled/"
+        "recurring tasks — 'remind me', 'every day', 'each week', 'run X "
+        "nightly'."
     ),
     "deep_research": (
         "Multi-step research — 'analyze X', 'compare A vs B', deep dives and "

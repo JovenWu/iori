@@ -25,6 +25,12 @@ from app.aksi.tools import (
     holdings_remove,
     holdings_save,
 )
+from app.schedules.tools import (
+    schedule_create,
+    schedule_delete,
+    schedule_list,
+    schedule_update,
+)
 from app.sectors.charts import judge_and_extract
 from app.sectors.tools import TOOLS
 
@@ -33,7 +39,8 @@ logger = logging.getLogger(__name__)
 # Everything the agent can call — sectors tools plus local helpers. `nodes`
 # decides which subset a workflow sees; the executor must accept all of them.
 AGENT_TOOLS = [*TOOLS, compute, aksi_impact, aksi_check, aksi_report,
-               aksi_reports, holdings_list, holdings_save, holdings_remove]
+               aksi_reports, holdings_list, holdings_save, holdings_remove,
+               schedule_list, schedule_create, schedule_update, schedule_delete]
 
 _tool_node = ToolNode(AGENT_TOOLS)
 
