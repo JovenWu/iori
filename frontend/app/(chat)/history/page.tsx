@@ -174,6 +174,7 @@ export default function HistoryPage() {
   const threads = useThreadsStore((s) => s.threads);
   const loaded = useThreadsStore((s) => s.loaded);
   const hasMore = useThreadsStore((s) => s.nextCursor !== null);
+  const total = useThreadsStore((s) => s.total);
   const loadingMore = useThreadsStore((s) => s.loadingMore);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
@@ -265,7 +266,7 @@ export default function HistoryPage() {
                 ? "Loading your conversations…"
                 : threads.length === 0
                   ? "Your past conversations live here"
-                  : `${filteredThreads.length} of ${threads.length}${hasMore ? "+" : ""} conversation${threads.length === 1 && !hasMore ? "" : "s"}`}
+                  : `${filteredThreads.length} of ${total ?? threads.length} conversation${(total ?? threads.length) === 1 ? "" : "s"}`}
             </p>
           </div>
         </div>

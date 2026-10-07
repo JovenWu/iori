@@ -16,7 +16,7 @@ from typing import Sequence
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
-from sqlalchemy import select, tuple_, update
+from sqlalchemy import func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.graph import build_graph
@@ -132,9 +132,10 @@ async def list_threads(
     *,
     limit: int = 20,
     before: tuple[datetime, uuid.UUID] | None = None,
-) -> tuple[list[Thread], str | None]:
+) -> tuple[list[Thread], str | None, int]:
     """Keyset-paginate on (updated_at, id): updated_at moves on every turn, so
-    offset paging would skip/duplicate rows as the list shifts."""
+    offset paging would skip/duplicate rows as the list shifts. The total
+    rides along so the UI can show "N of M" without a second query."""
     stmt = (
         select(Thread)
         .where(Thread.user_id == user_id)
@@ -143,6 +144,13 @@ async def list_threads(
     )
     if before is not None:
         stmt = stmt.where(tuple_(Thread.updated_at, Thread.id) < before)
+    total = (
+        await db.execute(
+            select(func.count()).select_from(Thread).where(
+                Thread.user_id == user_id
+            )
+        )
+    ).scalar_one()
     rows = list((await db.execute(stmt)).scalars().all())
     has_more = len(rows) > limit
     threads = rows[:limit]
@@ -151,7 +159,7 @@ async def list_threads(
         if has_more
         else None
     )
-    return threads, next_cursor
+    return threads, next_cursor, total
 
 
 async def update_thread(

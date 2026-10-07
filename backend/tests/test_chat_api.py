@@ -87,6 +87,7 @@ async def test_stream_turn_persists_history(client, agent_service, fake_llm):
     # Thread list + checkpointed history
     threads = await client.get("/api/v1/threads", headers=headers)
     assert [t["id"] for t in threads.json()["threads"]] == [thread_id]
+    assert threads.json()["total"] == 1  # full count rides along for "N of M"
 
     detail = await client.get(f"/api/v1/threads/{thread_id}", headers=headers)
     assert [m["role"] for m in detail.json()["messages"]] == ["user", "assistant"]

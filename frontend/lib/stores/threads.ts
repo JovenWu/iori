@@ -26,6 +26,8 @@ interface ThreadsStore {
   loaded: boolean;
   /** Keyset cursor for the next page — null once every thread is loaded. */
   nextCursor: string | null;
+  /** Server-side thread count — null until the first page lands. */
+  total: number | null;
   loadingMore: boolean;
   finishedRun: FinishedRun | null;
   /** First-load fetch, then probe preview-less threads for live runs. */
@@ -75,6 +77,7 @@ const initialState = {
   threads: [] as ListedThread[],
   loaded: false,
   nextCursor: null as string | null,
+  total: null as number | null,
   loadingMore: false,
   finishedRun: null as FinishedRun | null,
 };
@@ -125,6 +128,7 @@ export const useThreadsStore = create<ThreadsStore>()((set, get) => ({
           threads: sortThreadsByUpdatedAt([...keepers, ...fetched]),
           loaded: true,
           nextCursor: data.next_cursor,
+          total: data.total,
         };
       });
     } catch (err) {
@@ -152,6 +156,7 @@ export const useThreadsStore = create<ThreadsStore>()((set, get) => ({
         return {
           threads: sortThreadsByUpdatedAt([...byId.values()]),
           nextCursor: data.next_cursor,
+          total: data.total,
           loadingMore: false,
         };
       });
@@ -176,6 +181,12 @@ export const useThreadsStore = create<ThreadsStore>()((set, get) => ({
     const now = new Date().toISOString();
     const fallbackTitle = title.trim() || "New thread";
     set((s) => ({
+      // A brand-new row bumps the server total optimistically; updating an
+      // existing pending row doesn't.
+      total:
+        s.total !== null && !s.threads.some((t) => t.id === threadId)
+          ? s.total + 1
+          : s.total,
       threads: sortThreadsByUpdatedAt(
         s.threads.some((t) => t.id === threadId)
           ? s.threads.map((t) =>
@@ -210,7 +221,13 @@ export const useThreadsStore = create<ThreadsStore>()((set, get) => ({
 
   applyDeleted: (threadId) => {
     watchers.get(threadId)?.abort();
-    set((s) => ({ threads: s.threads.filter((t) => t.id !== threadId) }));
+    set((s) => ({
+      threads: s.threads.filter((t) => t.id !== threadId),
+      total:
+        s.total !== null && s.threads.some((t) => t.id === threadId)
+          ? s.total - 1
+          : s.total,
+    }));
   },
 
   patchThread: (threadId, patch) => {

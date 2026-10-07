@@ -180,6 +180,8 @@ export interface ThreadListPage {
   threads: Thread[];
   /** Pass back as `cursor` for the next page; null when the list is done. */
   next_cursor: string | null;
+  /** Total threads server-side — the "of N" denominator for the history list. */
+  total: number;
 }
 
 export const listThreads = (opts?: { limit?: number; cursor?: string }) => {

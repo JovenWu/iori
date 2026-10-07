@@ -31,6 +31,7 @@ class ThreadOut(BaseModel):
 class ThreadListOut(BaseModel):
     threads: list[ThreadOut]
     next_cursor: str | None = None
+    total: int
 
 
 class ChartSpecOut(BaseModel):
