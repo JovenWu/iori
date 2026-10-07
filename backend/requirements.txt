@@ -21,5 +21,6 @@ openai==2.32.0
 tiktoken==0.12.0
 httpx==0.28.1
 python-jose[cryptography]==3.5.0
+bcrypt==4.3.0
 python-multipart==0.0.21
 slowapi==0.1.9

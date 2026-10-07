@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import deps
@@ -13,7 +14,13 @@ from app.core import security
 from app.core.config import settings
 from app.core.ratelimit import limiter
 from app.models.user import User
-from app.schemas.auth import LoginRequest, RefreshRequest, Token, TokenPayload
+from app.schemas.auth import (
+    LoginRequest,
+    RefreshRequest,
+    RegisterRequest,
+    Token,
+    TokenPayload,
+)
 
 router = APIRouter()
 
@@ -30,29 +37,77 @@ def _token_response(user: User) -> dict[str, Any]:
     }
 
 
-async def _login_user(db: AsyncSession, username: str, password: str) -> User:
-    """Check the env-configured credentials; auto-provision the user row."""
-    valid = secrets.compare_digest(
-        username, settings.APP_USERNAME
-    ) and secrets.compare_digest(password, settings.APP_PASSWORD)
-    if not valid:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-        )
-
-    result = await db.execute(
-        select(User).where(User.username == settings.APP_USERNAME)
+def _bad_credentials() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Incorrect username or password",
     )
-    user = result.scalars().first()
-    if user is None:
-        user = User(username=settings.APP_USERNAME, is_active=True)
-        db.add(user)
-        await db.flush()
-        await db.refresh(user)
-    elif not user.is_active:
+
+
+async def _login_user(db: AsyncSession, username: str, password: str) -> User:
+    """The env-configured account checks env credentials (and auto-provisions
+    its row); any other username is a registered account verified against its
+    stored bcrypt hash."""
+    if username == settings.APP_USERNAME:
+        if not secrets.compare_digest(password, settings.APP_PASSWORD):
+            raise _bad_credentials()
+        result = await db.execute(
+            select(User).where(User.username == settings.APP_USERNAME)
+        )
+        user = result.scalars().first()
+        if user is None:
+            user = User(username=settings.APP_USERNAME, is_active=True)
+            db.add(user)
+            await db.flush()
+            await db.refresh(user)
+    else:
+        result = await db.execute(select(User).where(User.username == username))
+        user = result.scalars().first()
+        if (
+            user is None
+            or user.hashed_password is None
+            or not security.verify_password(password, user.hashed_password)
+        ):
+            raise _bad_credentials()
+    if not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     return user
+
+
+@router.post("/register", response_model=Token)
+@limiter.limit("10/minute")
+async def register(
+    request: Request,
+    body: RegisterRequest,
+    db: AsyncSession = Depends(deps.get_db),
+) -> Any:
+    """Create a username+password account and log it in."""
+    if body.username == settings.APP_USERNAME:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That username is reserved",
+        )
+    taken = HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Username already taken",
+    )
+    exists = await db.execute(
+        select(User.id).where(User.username == body.username)
+    )
+    if exists.scalar_one_or_none() is not None:
+        raise taken
+    user = User(
+        username=body.username,
+        hashed_password=security.hash_password(body.password),
+        is_active=True,
+    )
+    db.add(user)
+    try:
+        await db.flush()
+    except IntegrityError:
+        raise taken
+    await db.refresh(user)
+    return _token_response(user)
 
 
 @router.post("/login", response_model=Token)
@@ -62,8 +117,8 @@ async def login(
     body: LoginRequest,
     db: AsyncSession = Depends(deps.get_db),
 ) -> Any:
-    """Authenticate the env-configured account; auto-provisions the user row
-    on first successful login. There is no registration endpoint."""
+    """Authenticate the env-configured account (auto-provisioned on first
+    login) or a registered user against its stored hash."""
     return _token_response(await _login_user(db, body.username, body.password))
 
 

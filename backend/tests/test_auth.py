@@ -1,4 +1,4 @@
-"""Login-only auth: token issue, refresh, revocation via token_version."""
+"""Auth: login (env + registered users), registration, refresh, revocation."""
 
 import pytest
 from sqlalchemy import select
@@ -85,6 +85,77 @@ async def test_refresh_rejects_access_token(client):
         REFRESH_URL, json={"refresh_token": body["access_token"]}
     )
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_register_creates_user_and_logs_in(client, db):
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={"username": "analyst", "password": "spark-2026"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["access_token"] and body["user"]["username"] == "analyst"
+
+    result = await db.execute(select(User).where(User.username == "analyst"))
+    user = result.scalars().first()
+    assert user is not None and user.hashed_password
+    assert user.hashed_password != "spark-2026"
+
+    login = await client.post(
+        LOGIN_URL, json={"username": "analyst", "password": "spark-2026"}
+    )
+    assert login.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_register_rejects_duplicates_and_reserved(client):
+    resp = await client.post(
+        "/api/v1/auth/register",
+        json={"username": "analyst", "password": "spark-2026"},
+    )
+    assert resp.status_code == 200
+    dup = await client.post(
+        "/api/v1/auth/register",
+        json={"username": "analyst", "password": "different-123"},
+    )
+    assert dup.status_code == 409
+
+    reserved = await client.post(
+        "/api/v1/auth/register",
+        json={"username": settings.APP_USERNAME, "password": "whatever123"},
+    )
+    assert reserved.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_register_validation(client):
+    short = await client.post(
+        "/api/v1/auth/register",
+        json={"username": "analyst", "password": "short"},
+    )
+    assert short.status_code == 422
+    bad_chars = await client.post(
+        "/api/v1/auth/register",
+        json={"username": "bad name!", "password": "spark-2026"},
+    )
+    assert bad_chars.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_registered_user_wrong_password(client):
+    await client.post(
+        "/api/v1/auth/register",
+        json={"username": "analyst", "password": "spark-2026"},
+    )
+    resp = await client.post(
+        LOGIN_URL, json={"username": "analyst", "password": "wrong-pass"}
+    )
+    assert resp.status_code == 401
+    ghost = await client.post(
+        LOGIN_URL, json={"username": "ghost", "password": "spark-2026"}
+    )
+    assert ghost.status_code == 401
 
 
 @pytest.mark.asyncio

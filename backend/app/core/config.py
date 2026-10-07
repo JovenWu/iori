@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30
 
-    # Single login-only account provisioned from env; there is no registration.
+    # Admin account provisioned from env (auto-created on first login and
+    # reserved from registration); other accounts register with a password.
     APP_USERNAME: str = "demo"
     APP_PASSWORD: str = "demo123"
 
@@ -58,6 +59,9 @@ class Settings(BaseSettings):
     SECTORS_CACHE_STATIC_DAYS: int = 7
     SECTORS_CACHE_NEWS_MINUTES: int = 30
     SECTORS_TOOL_MAX_CHARS: int = 12_000
+    # Hard cap on total upstream credits across all users — reservations are
+    # atomic, so the counter can never overshoot. Cache hits stay free.
+    SECTORS_CREDIT_BUDGET: int = 1000
 
     CONTEXT_TOKEN_LIMIT: int = 16_000
     KEEP_TURNS: int = 2

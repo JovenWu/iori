@@ -13,6 +13,7 @@ import {
   getMe,
   getStoredUser,
   login as apiLogin,
+  register as apiRegister,
   logout as apiLogout,
   storeAuthUser,
   type User,
@@ -28,6 +29,7 @@ interface AuthContextValue {
   user: User | null
   isLoading: boolean
   login: (username: string, password: string) => Promise<void>
+  register: (username: string, password: string) => Promise<void>
   logout: () => void
 }
 
@@ -103,6 +105,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [router]
   )
 
+  const register = useCallback(
+    async (username: string, password: string) => {
+      const userData = await apiRegister(username, password)
+      setUser(userData)
+      setToken(getAccessToken())
+      router.replace("/")
+    },
+    [router]
+  )
+
   const logout = useCallback(() => {
     void apiLogout()
     resetChatStore()
@@ -115,7 +127,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [router])
 
   return (
-    <AuthContext.Provider value={{ token, user, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ token, user, isLoading, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   )

@@ -18,7 +18,8 @@ import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, register } = useAuth();
+  const [mode, setMode] = useState<"signin" | "register">("signin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -31,7 +32,11 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      await login(username, password);
+      if (mode === "register") {
+        await register(username, password);
+      } else {
+        await login(username, password);
+      }
       // AuthProvider redirects to "/".
     } catch (err) {
       setError(
@@ -50,7 +55,7 @@ export default function LoginPage() {
             alt="Sectors Agent logo"
             width={32}
             height={32}
-            className="drop-shadow-[0_2px_5px_rgb(94_106_210/0.45)]"
+            className="drop-shadow-[0_2px_5px_rgb(62_198_173/0.45)]"
           />
           <h1 className="text-2xl font-semibold tracking-[-0.02em]">
             Sectors Agent
@@ -62,9 +67,13 @@ export default function LoginPage() {
 
         <Card>
           <CardHeader className="pb-4">
-            <CardTitle className="text-base">Sign in</CardTitle>
+            <CardTitle className="text-base">
+              {mode === "signin" ? "Sign in" : "Create account"}
+            </CardTitle>
             <CardDescription>
-              Single-operator access — no public registration.
+              {mode === "signin"
+                ? "Enter your credentials."
+                : "Pick a username and password (8+ characters)."}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -95,7 +104,9 @@ export default function LoginPage() {
                   <Input
                     id="password"
                     type={showPassword ? "text" : "password"}
-                    autoComplete="current-password"
+                    autoComplete={
+                      mode === "register" ? "new-password" : "current-password"
+                    }
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="pr-9"
@@ -122,12 +133,26 @@ export default function LoginPage() {
                 {busy ? (
                   <>
                     <Loader2Icon className="size-4 animate-spin" />
-                    Signing in…
+                    {mode === "register" ? "Creating account…" : "Signing in…"}
                   </>
+                ) : mode === "register" ? (
+                  "Create account"
                 ) : (
                   "Sign in"
                 )}
               </Button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode(mode === "signin" ? "register" : "signin");
+                  setError(null);
+                }}
+                className="cursor-pointer text-center font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {mode === "signin"
+                  ? "No account? Create one"
+                  : "Have an account? Sign in"}
+              </button>
             </form>
           </CardContent>
         </Card>

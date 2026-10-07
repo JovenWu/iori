@@ -109,19 +109,39 @@ export function clearTokens() {
   localStorage.removeItem(USER_KEY);
 }
 
-/** Login — throws ApiError on failure (the page renders the detail). */
-export async function login(username: string, password: string): Promise<User> {
-  const resp = await fetch(`${BASE}/auth/login`, {
+async function _authPost(
+  path: "login" | "register",
+  username: string,
+  password: string,
+): Promise<User> {
+  const resp = await fetch(`${BASE}/auth/${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
   });
   const body = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    throw new ApiError(resp.status, body.detail ?? "Login failed");
+    // 422 validation errors are pydantic's [{msg, loc, ...}] array.
+    const detail = Array.isArray(body.detail)
+      ? body.detail[0]?.msg
+      : body.detail;
+    throw new ApiError(resp.status, detail ?? "Request failed");
   }
   setTokens(body.access_token, body.refresh_token, body.user ?? null);
   return body.user as User;
+}
+
+/** Login — throws ApiError on failure (the page renders the detail). */
+export async function login(username: string, password: string): Promise<User> {
+  return _authPost("login", username, password);
+}
+
+/** Register — same token pair as login; the account is already signed in. */
+export async function register(
+  username: string,
+  password: string,
+): Promise<User> {
+  return _authPost("register", username, password);
 }
 
 export async function logout() {

@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.session import async_session_maker
 from app.models.sectors_cache import SectorsCache
-from app.sectors import client
+from app.sectors import budget, client
 from app.sectors.freshness import Freshness, classify, is_stale
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ _inflight: dict[str, asyncio.Task] = {}
 class CacheResult:
     status: int
     data: Any
-    source: str  # "hit" | "upstream" | "stale_fallback"
+    source: str  # "hit" | "upstream" | "stale_fallback" | "budget"
     fetched_at: str  # ISO timestamp of the upstream fetch
     stale: bool  # deterministic hint — agent decides whether to refresh
 
@@ -137,14 +137,32 @@ async def cached_get(
             is_stale(existing.freshness, existing.fetched_at, now),
         )
 
-    # Miss or forced refresh — single-flight the upstream call.
+    # Miss or forced refresh — single-flight the upstream call. The reserve
+    # lives inside the task: no await between _inflight.get and registration,
+    # so concurrent callers still share one fetch — and one reservation.
     task = _inflight.get(key)
     owner = task is None
     if owner:
-        task = asyncio.create_task(client.get(path, params))
+        async def _fetch() -> tuple[int, Any, str]:
+            if not await budget.try_spend(credits):
+                # Global cap reached — surfaced as 429 so a stored entry can
+                # answer via stale_fallback below; "budget" marks it unbilled.
+                return 429, {"error": "sectors credit budget exhausted"}, "budget"
+            try:
+                status, data = await client.get(path, params)
+            except BaseException:
+                await budget.refund(credits)
+                raise
+            # 400/401/403/429/5xx are free per Sectors billing — hand the
+            # reservation back so `spent` tracks real consumption.
+            if status not in _BILLABLE:
+                await budget.refund(credits)
+            return status, data, "upstream"
+
+        task = asyncio.create_task(_fetch())
         _inflight[key] = task
     try:
-        status, data = await asyncio.shield(task)
+        status, data, source = await asyncio.shield(task)
     except client.SectorsUnavailable:
         if existing is not None:
             return CacheResult(
@@ -175,7 +193,7 @@ async def cached_get(
             key, endpoint, params, status, data,
             classify(freshness, params, now), credits, now,
         )
-    return CacheResult(status, data, "upstream", now.isoformat(), False)
+    return CacheResult(status, data, source, now.isoformat(), False)
 
 
 async def cache_stats() -> dict[str, Any]:
@@ -197,10 +215,14 @@ async def cache_stats() -> dict[str, Any]:
         agg["entries"] += 1
         agg["hits"] += hits
         agg["credits_saved"] += hits * credits
+    balance = await budget.snapshot()
     return {
         "entries": len(rows),
         "total_hits": sum(r[1] for r in rows),
         "credits_saved": sum(r[1] * r[2] for r in rows),
+        "credits_spent": balance["spent"],
+        "credits_budget": balance["budget"],
+        "credits_remaining": balance["remaining"],
         "by_endpoint": by_endpoint,
     }
 
