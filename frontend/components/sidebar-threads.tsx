@@ -62,31 +62,34 @@ function ThreadRow({
         isActive={isActive}
         tooltip={title}
         // Let the title use the full width; only reserve room for the
-        // actions button (or the pending spinner) when it's actually
-        // visible, so titles aren't truncated early.
+        // actions button (or the pending spinner / scheduled marker) when
+        // it's actually visible, so titles aren't truncated early.
         className={`h-7 py-1.5 group-hover/menu-item:pr-8 group-focus-within/menu-item:pr-8${
-          thread.isPending ? " pr-8" : ""
+          thread.isPending || thread.scheduled ? " pr-8" : ""
         }`}
       >
         <Link
           href={`/threads/${thread.id}`}
-          className="flex min-w-0 items-center gap-1.5"
+          className="flex min-w-0 items-center"
         >
-          {thread.scheduled && (
-            <TimerIcon
-              className="size-3.5 shrink-0 text-muted-foreground"
-              aria-label="Scheduled job thread"
-            />
-          )}
-          {thread.unread && (
-            <span
-              className="size-1.5 shrink-0 rounded-full bg-primary"
-              aria-label="New scheduled output"
-            />
-          )}
           <span className="min-w-0 flex-1 truncate">{title}</span>
         </Link>
       </SidebarMenuButton>
+
+      {/* Scheduled marker sits in the actions slot — it yields to the
+          ellipsis on hover/focus, so it's visible at rest but never in
+          the way. */}
+      {thread.scheduled && !thread.isPending && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 transition-opacity group-hover/menu-item:opacity-0 group-focus-within/menu-item:opacity-0 group-has-[[data-state=open]]/menu-item:opacity-0"
+        >
+          {thread.unread && (
+            <span className="size-1.5 rounded-full bg-primary" />
+          )}
+          <TimerIcon className="size-3.5 text-muted-foreground" />
+        </span>
+      )}
 
       {thread.isPending ? (
         <SidebarMenuAction
