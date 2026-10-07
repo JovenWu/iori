@@ -115,10 +115,15 @@ async def list_threads(
             before = (datetime.fromisoformat(raw_updated), uuid.UUID(raw_id))
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid cursor")
-    threads, next_cursor, total = await service.list_threads(
+    threads, next_cursor, total, starred = await service.list_threads(
         db, current_user.id, limit=limit, before=before
     )
-    return {"threads": threads, "next_cursor": next_cursor, "total": total}
+    return {
+        "threads": threads,
+        "next_cursor": next_cursor,
+        "total": total,
+        "starred": starred,
+    }
 
 
 @router.get("/threads/{thread_id}", response_model=ThreadDetailOut)

@@ -182,6 +182,9 @@ export interface ThreadListPage {
   next_cursor: string | null;
   /** Total threads server-side — the "of N" denominator for the history list. */
   total: number;
+  /** Every starred thread — page one only, so favorites render even when
+   * they'd sit outside the loaded recency pages. */
+  starred: Thread[];
 }
 
 export const listThreads = (opts?: { limit?: number; cursor?: string }) => {

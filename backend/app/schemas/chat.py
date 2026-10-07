@@ -32,6 +32,9 @@ class ThreadListOut(BaseModel):
     threads: list[ThreadOut]
     next_cursor: str | None = None
     total: int
+    # All of the user's starred threads — populated on page one only, so
+    # favorites render even when they'd fall outside the loaded pages.
+    starred: list[ThreadOut] = []
 
 
 class ChartSpecOut(BaseModel):

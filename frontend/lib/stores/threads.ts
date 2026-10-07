@@ -106,7 +106,10 @@ export const useThreadsStore = create<ThreadsStore>()((set, get) => ({
       const data = await listThreads({ limit: PAGE_SIZE });
       set((s) => {
         const prevById = new Map(s.threads.map((t) => [t.id, t]));
-        const fetchedIds = new Set(data.threads.map((t) => t.id));
+        // Page one carries every starred thread alongside the recency page —
+        // dedup the overlap so a recent favorite isn't listed twice.
+        const pageRows = [...data.starred, ...data.threads];
+        const fetchedIds = new Set(pageRows.map((t) => t.id));
         const hasMore = data.next_cursor !== null;
         const cutoff = getTimestamp(data.threads.at(-1)?.updated_at ?? "");
         // Rows missing from page one survive only if still pending, or if they
@@ -117,7 +120,9 @@ export const useThreadsStore = create<ThreadsStore>()((set, get) => ({
             !fetchedIds.has(t.id) &&
             (t.isPending || (hasMore && getTimestamp(t.updated_at) < cutoff)),
         );
-        const fetched: ListedThread[] = data.threads.map((t) => ({
+        const fetched: ListedThread[] = [
+          ...new Map(pageRows.map((t) => [t.id, t])).values(),
+        ].map((t) => ({
           ...t,
           // The server title can lag the optimistic one — keep ours until the
           // backend has a real one so the row never flashes "Untitled".

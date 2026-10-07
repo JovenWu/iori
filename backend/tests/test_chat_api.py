@@ -453,3 +453,39 @@ async def test_star_thread_keeps_updated_at(client, agent_service, fake_llm):
     listed = await client.get("/api/v1/threads", headers=headers)
     row = next(t for t in listed.json()["threads"] if t["id"] == thread_id)
     assert "starred" in row
+
+
+@pytest.mark.asyncio
+async def test_list_returns_starred_beyond_loaded_pages(
+    client, agent_service, fake_llm
+):
+    """A favorite buried in the recency order must still reach the client on
+    page one — the sidebar/history pin it above the loaded window."""
+    headers = await _login(client)
+    ids = []
+    for _ in range(3):
+        async with client.stream(
+            "POST", STREAM_URL, json={"message": "hi"}, headers=headers
+        ) as resp:
+            events = await _collect(resp)
+        ids.append(events[-1]["data"]["thread_id"])
+    oldest = ids[0]
+
+    await client.patch(
+        f"/api/v1/threads/{oldest}", json={"starred": True}, headers=headers
+    )
+
+    page = (await client.get("/api/v1/threads?limit=1", headers=headers)).json()
+    assert [t["id"] for t in page["threads"]] == [ids[-1]]  # newest only
+    assert [t["id"] for t in page["starred"]] == [oldest]
+    assert page["total"] == 3
+
+    # Deeper pages don't re-send the starred block — page one owns it.
+    page2 = (
+        await client.get(
+            "/api/v1/threads",
+            params={"limit": 1, "cursor": page["next_cursor"]},
+            headers=headers,
+        )
+    ).json()
+    assert page2["starred"] == []

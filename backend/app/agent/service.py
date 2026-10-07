@@ -132,10 +132,12 @@ async def list_threads(
     *,
     limit: int = 20,
     before: tuple[datetime, uuid.UUID] | None = None,
-) -> tuple[list[Thread], str | None, int]:
+) -> tuple[list[Thread], str | None, int, list[Thread]]:
     """Keyset-paginate on (updated_at, id): updated_at moves on every turn, so
     offset paging would skip/duplicate rows as the list shifts. The total
-    rides along so the UI can show "N of M" without a second query."""
+    rides along so the UI can show "N of M" without a second query. The first
+    page also returns every starred thread — favorites must surface on top no
+    matter how far back in the recency order they sit."""
     stmt = (
         select(Thread)
         .where(Thread.user_id == user_id)
@@ -151,6 +153,17 @@ async def list_threads(
             )
         )
     ).scalar_one()
+    starred: list[Thread] = []
+    if before is None:
+        starred = list(
+            (
+                await db.execute(
+                    select(Thread)
+                    .where(Thread.user_id == user_id, Thread.starred.is_(True))
+                    .order_by(Thread.updated_at.desc())
+                )
+            ).scalars().all()
+        )
     rows = list((await db.execute(stmt)).scalars().all())
     has_more = len(rows) > limit
     threads = rows[:limit]
@@ -159,7 +172,7 @@ async def list_threads(
         if has_more
         else None
     )
-    return threads, next_cursor, total
+    return threads, next_cursor, total, starred
 
 
 async def update_thread(
