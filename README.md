@@ -10,7 +10,7 @@ Ask anything about the IDX and watch it work. See what every dividend, rights is
 
 ### [→ Open the live app: iori.joven.dev](https://iori.joven.dev)
 
-[▶ 1-minute teaser](TEASER_URL) · [▶ 3-minute walkthrough](WALKTHROUGH_URL) · [How it uses Sectors](#how-iori-uses-sectors) · [Run it locally](#run-it-locally)
+[▶ 1-minute teaser](https://www.instagram.com/reel/DeO26UDA_mE/) · [▶ 3-minute walkthrough](https://youtu.be/HdX6WLztuR4) · [How it uses Sectors](#how-iori-uses-sectors) · [Run it locally](#run-it-locally)
 
 ![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white) ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white) ![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C?logo=langchain&logoColor=white) ![Next.js](https://img.shields.io/badge/Next.js_16-000000?logo=nextdotjs&logoColor=white) ![PostgreSQL](https://img.shields.io/badge/Postgres_16_+_pgvector-4169E1?logo=postgresql&logoColor=white) ![Sectors API](https://img.shields.io/badge/data-Sectors_API-3ec6ad)
 
