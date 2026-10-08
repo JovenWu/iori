@@ -27,7 +27,7 @@ export function SidebarHeaderContent() {
           <div className="grid flex-1 text-left text-sm leading-tight shrink-0 group-data-[collapsible=icon]:hidden">
             <span className="truncate font-brand text-xl font-bold tracking-tight text-foreground">iori</span>
             <span className="truncate text-xs text-muted-foreground/80">
-              IDX market intelligence
+              Agentic IDX analysis
             </span>
           </div>
         </SidebarMenuButton>

@@ -19,7 +19,7 @@ const jost = Jost({
 });
 
 export const metadata: Metadata = {
-  title: "iori — IDX market intelligence",
+  title: "iori — Agentic IDX analysis",
   description: "Agentic IDX market analysis — information, not advice.",
 };
 
