@@ -77,6 +77,7 @@ async def test_stream_turn_persists_history(client, agent_service, fake_llm):
     ) as resp:
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("text/event-stream")
+        assert "no-transform" in resp.headers["cache-control"]
         events = await _collect(resp)
 
     assert [e["seq"] for e in events] == list(range(1, len(events) + 1))

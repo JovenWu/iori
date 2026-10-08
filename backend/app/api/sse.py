@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from app.agent.runs import AgentRun
 
 SSE_HEADERS = {
-    "Cache-Control": "no-cache",
+    "Cache-Control": "no-cache, no-transform",
     "X-Accel-Buffering": "no",
     "Connection": "keep-alive",
 }
