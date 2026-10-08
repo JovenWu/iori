@@ -28,7 +28,7 @@ async def sectors_cache_flush(
     user: User = Depends(deps.get_current_user),
 ) -> Any:
     """Flushing the shared market-data cache forces credit-spending refetches
-    for everyone — restrict it to the app admin, not any registered user."""
-    if user.username != settings.APP_USERNAME:
+    for everyone — restrict it to ADMIN_USERNAME; unset disables it."""
+    if not settings.ADMIN_USERNAME or user.username != settings.ADMIN_USERNAME:
         raise HTTPException(status_code=403, detail="Admin only")
     return {"cleared": await cache.cache_clear()}

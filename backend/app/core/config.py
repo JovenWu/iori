@@ -23,10 +23,13 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30
 
-    # Admin account provisioned from env (auto-created on first login and
+    # Demo account provisioned from env (auto-created on first login and
     # reserved from registration); other accounts register with a password.
     APP_USERNAME: str = "demo"
     APP_PASSWORD: str = "demo123"
+    # The only account allowed to flush the shared Sectors cache. Empty =
+    # nobody — the demo credentials are public, so they must not be admin.
+    ADMIN_USERNAME: str = ""
 
     # All chat / classification / embedding calls go through OpenRouter.
     OPENROUTER_API_KEY: str
