@@ -196,47 +196,11 @@ Billing reference (docs.sectors.app): 2xx and 404 consume credits; 400/401/403/4
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    UI["<b>Next.js 16 frontend</b><br/>chat · corporate actions · schedules"]
-    API["<b>FastAPI</b><br/>JWT auth · SSE streams · rate limits"]
-    UI -- "same-origin /api · SSE" --> API
-
-    subgraph RUNTIME["Agent runtime (LangGraph)"]
-        direction LR
-        SCHED["Scheduler worker"] -- "fires due jobs" --> CHAT["Chat agent"]
-        AKSI["Corporate-action copilot"]
-    end
-    API --> CHAT
-    API --> AKSI
-
-    CHAT --> MODELS["LLM via OpenRouter<br/>TypeSafe JEV: routing · gates · rerank"]
-    CHAT --> TOOLS["54 tools"]
-    AKSI --> TOOLS
-
-    subgraph PG["PostgreSQL 16 + pgvector"]
-        direction LR
-        CACHE[("Sectors cache")]
-        MEM[("Memory")]
-        CKPT[("Checkpoints")]
-    end
-    TOOLS --> CACHE
-    CHAT --> MEM
-    CHAT --> CKPT
-    CACHE -- "miss · credit-checked" --> SECTORS["Sectors REST API"]
-```
+<p align="center"><img src="docs/diagrams/architecture.svg" width="100%" alt="iori system architecture: the Schedules, Chat and Corporate Actions pages call FastAPI endpoints, which drive the scheduler worker, the LangGraph chat agent and the corporate-action copilot. The agents use OpenRouter and TypeSafe JEV, and reach 54 tools, memory and checkpoints in Postgres. Tools read the Sectors cache, which calls the Sectors REST API only on a cache miss." /></p>
 
 Every chat turn runs one graph:
 
-```mermaid
-flowchart LR
-    S(("start")) --> CM["context_manager<br/>memory gates · rolling summary"]
-    CM --> R["router<br/>pick a workflow"]
-    R --> A["agent"]
-    A -- "tool calls" --> T["tools<br/>+ chart extraction"]
-    T --> A
-    A --> E(("done"))
-```
+<p align="center"><img src="docs/diagrams/agent-turn.svg" width="100%" alt="One chat turn: context_manager decides which context is needed, router picks one of four workflows, agent builds the prompt and loops with tools until it can answer, then the answer streams to the UI. Tools reach Sectors through the cache." /></p>
 
 - **context_manager** asks TypeSafe JEV two yes/no questions in one call: does this turn need the user's memories, and does it need past chats? Small talk never pays for retrieval. Long threads get a rolling chained summary; history is never trimmed.
 - **router** sends each question to one of four workflows (`general`, `sectors_data`, `deep_research`, `corporate_actions`), each with its own instructions. If JEV is unavailable it falls back to `general`, so a classifier outage never breaks a turn.
@@ -328,7 +292,7 @@ Open **http://localhost:3000**. The backend runs `alembic upgrade head` on start
 ## Testing
 
 ```bash
-docker compose exec backend python -m pytest tests          # 268 tests on a dedicated sectors_agent_test DB
+docker compose exec backend python -m pytest tests          # 273 tests on a dedicated sectors_agent_test DB
 docker compose exec frontend npx tsc --noEmit && docker compose exec frontend npx eslint .
 ```
 
@@ -364,7 +328,7 @@ All routes are under `/api/v1`.
 | GET | `/aksi/reports/latest` · `/aksi/reports/{id}` | latest (`?mode=live\|replay`) · one report |
 | POST | `/aksi/impact` | one holding's corporate-action figures, no LLM |
 | GET | `/sectors/cache/stats` | cache entries, hits, credits spent / saved / remaining |
-| DELETE | `/sectors/cache` | flush the cache (admin only) |
+| DELETE | `/sectors/cache` | flush the cache (only `ADMIN_USERNAME`; disabled when unset) |
 
 SSE events are JSON `data:` lines shaped `{"seq": N, "type": "...", "data": ...}`. `tool` events carry `{name, status: "call" | "done" | "error"}` so clients can render tool progress.
 
@@ -383,7 +347,7 @@ backend/app/
   api/v1/      endpoints: auth, users, chat, memory, sectors, aksi, schedules
   core/        config, security (JWT), llm factory, jev client, logging, middleware, rate limits
   models/  schemas/  prompts/  db/
-backend/tests/ 268 tests, Sectors client mocked
+backend/tests/ 273 tests, Sectors client mocked
 frontend/
   app/(chat)/  chat, /threads/{id}, /history, /action (corporate actions), /schedules
   app/(auth)/  sign in / register
