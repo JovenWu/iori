@@ -117,28 +117,27 @@ function Timeline({ event, asOf, lang }: { event: AksiEvent; asOf: string | null
       .filter((p) => p.date),
     ...(today ? [{ key: "today", label: t.today, date: today, isToday: true }] : []),
   ].sort((a, b) => a.date.localeCompare(b.date));
+  // Equal columns on a shared row grid (subgrid): each label owns its whole
+  // column and may wrap, while dots, labels and dates stay aligned across.
   return (
-    <ol className="flex px-4 py-3" aria-label={t.timelineAria}>
+    <ol className="grid auto-cols-fr grid-flow-col grid-rows-[auto_auto_auto] gap-y-1 px-4 py-3"
+      aria-label={t.timelineAria}>
       {items.map((p, i) => {
         const last = i === items.length - 1;
         return (
-          <li key={p.key}
-            className={cn("flex min-w-0 flex-col", last ? "w-2 flex-none items-end" : "flex-1")}>
+          <li key={p.key} className="row-span-3 grid min-w-0 grid-rows-subgrid">
             <div className="flex h-2 items-center">
               <span aria-hidden className={cn("size-2 shrink-0 rounded-full",
                 p.isToday ? "bg-primary" : today && p.date <= today ? "bg-muted-foreground" : "border border-muted-foreground")} />
               {!last && <span aria-hidden className="h-px flex-1 bg-border" />}
             </div>
-            <div className={cn("mt-1 flex flex-col gap-1", last ? "w-24 items-end" : "pr-4")}>
-              <span title={p.label}
-                className={cn("truncate text-xs",
-                  p.isToday ? "text-foreground" : "text-muted-foreground", last && "w-full text-right")}>
-                {p.label}
-              </span>
-              <span className={cn("truncate font-mono text-xs", last && "w-full text-right")}>
-                {formatDate(p.date, lang)}
-              </span>
-            </div>
+            <span className={cn("min-w-0 pr-3 text-xs break-words hyphens-auto",
+              p.isToday ? "text-foreground" : "text-muted-foreground")}>
+              {p.label}
+            </span>
+            <span className="min-w-0 pr-3 font-mono text-xs break-words">
+              {formatDate(p.date, lang)}
+            </span>
           </li>
         );
       })}
